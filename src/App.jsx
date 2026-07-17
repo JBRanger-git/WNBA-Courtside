@@ -464,13 +464,23 @@ function PlayersScreen({ open }) {
 function ScheduleScreen() {
   const days = useMemo(() => {
     const m = {};
-    GAMES.forEach(g => { (m[g.date] ||= []).push(g); });
+    // Upcoming only: a game is "played" iff it has box-score rows (g.done). Show the rest.
+    GAMES.filter(g => !g.done)
+      .slice()
+      .sort((a, b) => a.date < b.date ? -1 : a.date > b.date ? 1 : 0)
+      .forEach(g => { (m[g.date] ||= []).push(g); });
     return Object.entries(m);
   }, []);
+  const upcoming = RAW.meta.totalGames - RAW.meta.completedGames;
   return (
     <>
-      <Masthead title="Schedule" sub={`${RAW.meta.completedGames}/${RAW.meta.totalGames} played`} />
+      <Masthead title="Schedule" sub={`${upcoming} upcoming`} />
       <div className="noscroll" style={{ flex: 1, overflowY: "auto", padding: "0 14px 12px" }}>
+        {days.length === 0 && (
+          <div style={{ textAlign: "center", color: C.mute, fontSize: 12, padding: "40px 0" }}>
+            No upcoming games — the season is complete.
+          </div>
+        )}
         {days.map(([date, gs]) => (
           <div key={date}>
             <div style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: 1.2, textTransform: "uppercase", color: C.sec, padding: "12px 0 4px", borderBottom: `1.5px solid ${C.rule}` }}>
