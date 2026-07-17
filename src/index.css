@@ -1,0 +1,15 @@
+:root { color-scheme: light; }
+* { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+html, body, #root { height: 100%; }
+body {
+  background: #F4F2EC;
+  font-family: 'Roboto', system-ui, sans-serif;
+  color: #15151C;
+  /* Notch / gesture bar. Without these the tab bar sits under the system UI. */
+  padding: env(safe-area-inset-top) env(safe-area-inset-right)
+           env(safe-area-inset-bottom) env(safe-area-inset-left);
+  overscroll-behavior: none;
+}
+.noscroll::-webkit-scrollbar { display: none; }
+.noscroll { scrollbar-width: none; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }

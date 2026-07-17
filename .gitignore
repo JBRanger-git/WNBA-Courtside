@@ -1,0 +1,7 @@
+node_modules/
+dist/
+android/
+.DS_Store
+*.local
+data/csv/*.csv
+!data/csv/.gitkeep

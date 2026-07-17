@@ -1,0 +1,29 @@
+{
+  "name": "wnba-courtside",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "data": "python3 scripts/build_data.py ./data/csv ./src/data",
+    "bio": "python3 scripts/wikidata_bio.py ./data/csv/dim_players.csv ./data/csv/dim_player_bio.csv",
+    "smoke": "node scripts/smoke.mjs",
+    "verify": "npm run data && npm run build && npm run smoke",
+    "sync": "npm run build && npx cap sync android",
+    "android": "npm run sync && npx cap open android"
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "lucide-react": "^0.383.0"
+  },
+  "devDependencies": {
+    "@capacitor/android": "^6.1.2",
+    "@capacitor/cli": "^6.1.2",
+    "@capacitor/core": "^6.1.2",
+    "@vitejs/plugin-react": "^4.3.1",
+    "vite": "^5.4.0"
+  }
+}

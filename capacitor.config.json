@@ -1,0 +1,8 @@
+{
+  "appId": "uk.co.courtside.wnba",
+  "appName": "Courtside",
+  "webDir": "dist",
+  "android": {
+    "backgroundColor": "#F4F2EC"
+  }
+}

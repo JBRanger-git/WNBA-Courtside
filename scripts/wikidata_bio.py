@@ -1,0 +1,140 @@
+#!/usr/bin/env python3
+"""
+WNBA Courtside — player bio from Wikidata.
+
+Why Wikidata: it's CC0 (public domain dedication). No attribution required, no
+commercial restriction, no ToS to breach. It's the only major source for this
+material that's unambiguously safe to redistribute in a shipped app — which is
+exactly why it's worth the patchy coverage.
+
+Pulls: college (P69), draft pick (P647), date of birth (P569), country (P27),
+and honours received (P166). Deliberately does NOT pull "nominated for" (P1411)
+— it's sparsely populated for basketball and the WNBA has no real nomination
+structure, so it would be a field that's blank 95% of the time.
+
+Matching is by name, which is the weak link — see reconcile() below. Anything
+unmatched is left blank rather than guessed. A blank bio field renders as
+nothing; a wrong one poisons the whole app's credibility.
+
+Usage:
+    pip install requests
+    python3 scripts/wikidata_bio.py data/csv/dim_players.csv data/csv/dim_player_bio.csv
+"""
+import csv
+import json
+import sys
+import time
+import unicodedata
+from pathlib import Path
+
+import requests
+
+ENDPOINT = "https://query.wikidata.org/sparql"
+# Wikidata asks for a descriptive UA with contact info. Don't skip this — they
+# throttle or block generic agents, and they're within their rights to.
+HEADERS = {
+    "User-Agent": "WNBACourtside/0.3 (https://github.com/YOURNAME/courtside; you@example.com)",
+    "Accept": "application/sparql-results+json",
+}
+
+# One query, all WNBA players, rather than 200 per-player lookups. Kinder to a
+# free public endpoint and roughly 200x faster.
+QUERY = """
+SELECT ?player ?playerLabel ?collegeLabel ?dob ?countryLabel
+       (GROUP_CONCAT(DISTINCT ?honourLabel; separator="; ") AS ?honours)
+WHERE {
+  ?league rdfs:label "Women's National Basketball Association"@en .
+  ?team wdt:P118 ?league .
+  ?player wdt:P54 ?team .
+  OPTIONAL { ?player wdt:P69  ?college . }
+  OPTIONAL { ?player wdt:P569 ?dob . }
+  OPTIONAL { ?player wdt:P27  ?country . }
+  OPTIONAL {
+    ?player wdt:P166 ?honour .
+    ?honour rdfs:label ?honourLabel . FILTER(LANG(?honourLabel) = "en")
+  }
+  SERVICE wikibase:label { bd:serviceParam wikibase:language "en". }
+}
+GROUP BY ?player ?playerLabel ?collegeLabel ?dob ?countryLabel
+"""
+
+
+def norm(name: str) -> str:
+    """Fold accents and punctuation so 'Valériane Ayayi' matches 'Valeriane Ayayi'."""
+    s = unicodedata.normalize("NFKD", name)
+    s = "".join(c for c in s if not unicodedata.combining(c))
+    return "".join(c for c in s.lower() if c.isalnum() or c == " ").strip()
+
+
+def fetch():
+    r = requests.get(ENDPOINT, params={"format": "json", "query": QUERY},
+                     headers=HEADERS, timeout=120)
+    r.raise_for_status()
+    return r.json()["results"]["bindings"]
+
+
+def reconcile(players_csv: Path, out_csv: Path):
+    roster = list(csv.DictReader(open(players_csv, encoding="utf-8")))
+    print(f"Roster: {len(roster)} players")
+
+    rows = fetch()
+    print(f"Wikidata returned: {len(rows)} WNBA player records")
+
+    wd = {}
+    for b in rows:
+        key = norm(b["playerLabel"]["value"])
+        # Some players have multiple college statements (transfers). Keep the
+        # first and note it — picking "the" college is a judgement call the
+        # data doesn't make for you.
+        if key in wd and wd[key].get("college"):
+            continue
+        wd[key] = {
+            "qid": b["player"]["value"].rsplit("/", 1)[-1],
+            "college": b.get("collegeLabel", {}).get("value"),
+            "dob": b.get("dob", {}).get("value", "")[:10] or None,
+            "country": b.get("countryLabel", {}).get("value"),
+            "honours": b.get("honours", {}).get("value") or None,
+        }
+
+    out, matched, with_college = [], 0, 0
+    for p in roster:
+        hit = wd.get(norm(p["athlete_display_name"]))
+        if hit:
+            matched += 1
+            if hit["college"]:
+                with_college += 1
+        out.append({
+            "athlete_id": p["athlete_id"],
+            "athlete_display_name": p["athlete_display_name"],
+            "wikidata_qid": hit["qid"] if hit else "",
+            "college": (hit or {}).get("college") or "",
+            "date_of_birth": (hit or {}).get("dob") or "",
+            "country": (hit or {}).get("country") or "",
+            "honours": (hit or {}).get("honours") or "",
+        })
+
+    with open(out_csv, "w", newline="", encoding="utf-8") as f:
+        w = csv.DictWriter(f, fieldnames=list(out[0].keys()))
+        w.writeheader()
+        w.writerows(out)
+
+    n = len(roster)
+    print(f"\nMatched to Wikidata : {matched}/{n} ({matched/n*100:.0f}%)")
+    print(f"With a college       : {with_college}/{n} ({with_college/n*100:.0f}%)")
+    print(f"Wrote {out_csv}")
+
+    unmatched = [r["athlete_display_name"] for r in out if not r["wikidata_qid"]]
+    if unmatched:
+        print(f"\nUnmatched ({len(unmatched)}) — expect rookies and "
+              f"international players with no NCAA history:")
+        for nm in unmatched[:25]:
+            print("  ", nm)
+        print("\nName matching is the weak link. Before hand-fixing these, check "
+              "whether they exist in Wikidata at all — many genuinely don't, and "
+              "a blank college is correct for anyone who went pro in Europe at 16.")
+
+
+if __name__ == "__main__":
+    src = Path(sys.argv[1]) if len(sys.argv) > 1 else Path("data/csv/dim_players.csv")
+    dst = Path(sys.argv[2]) if len(sys.argv) > 2 else Path("data/csv/dim_player_bio.csv")
+    reconcile(src, dst)
