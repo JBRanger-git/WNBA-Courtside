@@ -8,30 +8,42 @@ information. The short version: **it collects nothing.**
 
 ## What we collect
 
-Nothing.
-
-Courtside does not collect, store, transmit, or share any personal or device
-information. Specifically, the app:
+Nothing. Courtside does not collect, store, or share any personal information.
+Specifically, the app:
 
 - **has no accounts** — there is nothing to sign up for or log in to;
 - **has no ads** and includes no advertising or analytics SDKs;
 - **does no tracking** — no advertising ID, no device fingerprinting, no
-  behavioural profiling;
-- **makes no network requests** — all statistics are bundled inside the app at
-  build time and read from local storage on your device. The app does not talk
-  to any server while you use it.
+  behavioural profiling.
 
-Because the app performs no network communication, no data ever leaves your
-device, and there is no server that could receive it.
+## Network use
+
+To keep the statistics current, the app fetches a single public data file (WNBA
+standings, scores and player stats) over a secure HTTPS connection when it
+launches. That request:
+
+- sends **no personal information** — it includes no account, identifier, or
+  device data, and carries nothing about you. It only asks for the latest
+  statistics file.
+- As with any request to any website, the server hosting the file receives the
+  standard technical information a web request includes (such as your device's
+  IP address). We do **not** use this to identify, profile, or track you, and we
+  build no profile of our users.
+
+If the device is offline, the app falls back to the statistics bundled inside it
+and still works. No data about you ever leaves your device.
 
 ## Permissions
 
-Courtside requests no runtime permissions (no location, contacts, camera,
-storage, or network access is required for its features).
+Courtside uses internet access to fetch the statistics file described above. It
+requests no other permissions (no location, contacts, camera, or storage).
 
 ## Data shared with third parties
 
-None. With no collection and no network calls, there is nothing to share.
+None. Courtside collects no personal data, so there is nothing to share. The
+statistics file is hosted on GitHub Pages; retrieving it is subject to that
+host's standard server logging, but the request carries no information about you
+beyond an ordinary web request.
 
 ## Children's privacy
 
