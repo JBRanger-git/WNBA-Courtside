@@ -69,10 +69,12 @@ jobs:
         run: |
           git config user.name  "courtside-data-bot"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          if git diff --quiet -- src/data/app-data.json; then
+          # Publish a copy for installed phones to fetch (served by GitHub Pages).
+          cp src/data/app-data.json docs/app-data.json
+          if git diff --quiet -- src/data/app-data.json docs/app-data.json; then
             echo "No change in app-data.json — nothing to commit."
           else
-            git add src/data/app-data.json
+            git add src/data/app-data.json docs/app-data.json
             git commit -m "data: daily refresh $(date -u +%Y-%m-%d)"
             git push origin HEAD:${{ github.ref_name }}
             echo "Pushed refreshed snapshot."
