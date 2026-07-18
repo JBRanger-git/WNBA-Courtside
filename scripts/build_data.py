@@ -47,13 +47,21 @@ def creation_bucket(tt):
 
 def build(csv_dir: Path, out_dir: Path):
     out_dir.mkdir(parents=True, exist_ok=True)
+    # PREV is the last good snapshot. The daily refresh (scripts/fetch_wnba.R) only
+    # regenerates the fast-moving CSVs; the slow/hard datasets — player bio, news
+    # and the shot fingerprint — are PRESERVED from PREV when their source CSV is
+    # absent, rather than risk generating them wrong. "A blank field beats a wrong
+    # one" (CLAUDE.md). Provide the CSV and it takes over; omit it and PREV wins.
+    prev_path = out_dir/"app-data.json"
+    PREV = json.loads(prev_path.read_text(encoding="utf-8")) if prev_path.exists() else {}
+
     teams_raw   = read(csv_dir/"dim_teams.csv")
-    players_raw = read(csv_dir/"dim_players.csv")
     games_raw   = read(csv_dir/"dim_games.csv")
-    news_raw    = read(csv_dir/"dim_news.csv")
     stand_raw   = read(csv_dir/"fact_standings.csv")
     tbox        = read(csv_dir/"fact_team_box.csv")
     season_raw  = read(csv_dir/"fact_player_season.csv")
+    dp = csv_dir/"dim_players.csv"; players_raw = read(dp) if dp.exists() else None
+    dn = csv_dir/"dim_news.csv";    news_raw    = read(dn) if dn.exists() else None
 
     T = [[int(t["team_id"]), t["abbreviation"], t["team_display_name"], t["team_short_name"],
           "#"+t["color"].lstrip("#"), CONFERENCE.get(t["team_display_name"])] for t in teams_raw]
@@ -105,33 +113,41 @@ def build(csv_dir: Path, out_dir: Path):
     keep = {r[0] for r in P}
     print(f"  players        {len(P)}  (>= {MIN_GP} GP)")
 
-    N = sorted([[n["headline"], n["byline"] or "", n["abbreviation"] or "", n["published_date"][:10]]
-                for n in news_raw], key=lambda r:r[3], reverse=True)[:5]
-    print(f"  news           {len(N)}")
-
-    bio_extra = {}
-    bc = csv_dir/"dim_player_bio.csv"
-    if bc.exists():
-        for r in read(bc):
-            if r.get("college"): bio_extra[int(r["athlete_id"])] = r["college"]
-        print(f"  wikidata bio   {len(bio_extra)} with a college")
+    if news_raw is None:
+        N = PREV.get("N") or []
+        print(f"  news           {len(N)}  (preserved — no dim_news.csv)")
     else:
-        print("  wikidata bio   (skipped — run scripts/wikidata_bio.py to add college)")
+        N = sorted([[n["headline"], n["byline"] or "", n["abbreviation"] or "", n["published_date"][:10]]
+                    for n in news_raw], key=lambda r:r[3], reverse=True)[:5]
+        print(f"  news           {len(N)}")
 
     # weight is only ~53% filled, so it's excluded rather than shown as a gap.
-    BIO = {}
-    for r in players_raw:
-        aid = int(r["athlete_id"])
-        if aid not in keep: continue
-        e = {}
-        if r["height"].strip():                e["h"] = r["height"].strip()
-        if r["age"].strip():                   e["age"] = int(r["age"])
-        if r["experience_years"].strip():      e["exp"] = int(r["experience_years"])
-        if r["athlete_jersey"].strip():        e["no"] = r["athlete_jersey"].strip()
-        if r["athlete_position_name"].strip(): e["posFull"] = r["athlete_position_name"].strip()
-        if aid in bio_extra:                   e["college"] = bio_extra[aid]
-        if e: BIO[aid] = e
-    print(f"  player bio     {len(BIO)}")
+    if players_raw is None:
+        # Preserve bios from the last snapshot, trimmed to the players still kept.
+        BIO = {int(k): v for k, v in (PREV.get("BIO") or {}).items() if int(k) in keep}
+        print(f"  player bio     {len(BIO)}  (preserved — no dim_players.csv)")
+    else:
+        bio_extra = {}
+        bc = csv_dir/"dim_player_bio.csv"
+        if bc.exists():
+            for r in read(bc):
+                if r.get("college"): bio_extra[int(r["athlete_id"])] = r["college"]
+            print(f"  wikidata bio   {len(bio_extra)} with a college")
+        else:
+            print("  wikidata bio   (skipped — run scripts/wikidata_bio.py to add college)")
+        BIO = {}
+        for r in players_raw:
+            aid = int(r["athlete_id"])
+            if aid not in keep: continue
+            e = {}
+            if r["height"].strip():                e["h"] = r["height"].strip()
+            if r["age"].strip():                   e["age"] = int(r["age"])
+            if r["experience_years"].strip():      e["exp"] = int(r["experience_years"])
+            if r["athlete_jersey"].strip():        e["no"] = r["athlete_jersey"].strip()
+            if r["athlete_position_name"].strip(): e["posFull"] = r["athlete_position_name"].strip()
+            if aid in bio_extra:                   e["college"] = bio_extra[aid]
+            if e: BIO[aid] = e
+        print(f"  player bio     {len(BIO)}")
 
     # Home venues + attendance from fixtures. Several clubs use more than one home
     # arena (Toronto play across four in three cities) so this is a list, not a scalar.
@@ -200,7 +216,13 @@ def build(csv_dir: Path, out_dir: Path):
         if drift >= 0.01:
             raise SystemExit("Shot data failed reconciliation — refusing to write a bad fingerprint.")
     else:
-        print("  shots          (no fact_pbp.csv — Fingerprint shows 'not enough shots')")
+        # Preserve the last good fingerprint. The shot chart moves slowly and is the
+        # riskiest thing to regenerate, so the daily refresh leaves it untouched and
+        # carries it forward. Refresh it deliberately by dropping a fresh fact_pbp.csv
+        # into data/csv and re-running this script.
+        SHOTS = PREV.get("SHOTS")
+        n = len(SHOTS["P"]) if SHOTS and SHOTS.get("P") else 0
+        print(f"  shots          (no fact_pbp.csv — preserved {n} fingerprints from prior build)")
 
     payload = {"meta":{"totalGames":len(G), "completedGames":completed,
                        "leagueAvgPpg":round(sum(int(r["team_score"]) for r in tbox)/len(tbox),1),
