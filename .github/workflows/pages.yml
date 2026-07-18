@@ -1,0 +1,55 @@
+name: Deploy privacy policy to GitHub Pages
+
+# Publishes docs/privacy.html to GitHub Pages so the Play Console has a
+# public, stable privacy-policy URL. The site is just the privacy page:
+# it is served at both the site root and /privacy.html.
+
+on:
+  push:
+    branches:
+      - claude/play-store-deployment-4cv08q
+    paths:
+      - docs/privacy.html
+      - .github/workflows/pages.yml
+  workflow_dispatch:
+
+# Least privilege: read the repo, write Pages, mint the OIDC token deploy needs.
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# One live deployment at a time; let a newer run supersede an in-flight one.
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Assemble site
+        run: |
+          mkdir -p _site
+          cp docs/privacy.html _site/privacy.html
+          cp docs/privacy.html _site/index.html
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+        with:
+          enablement: true
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
