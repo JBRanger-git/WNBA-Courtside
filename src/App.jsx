@@ -192,8 +192,17 @@ function Splash({ done }) {
       opacity: done ? 0 : 1, pointerEvents: done ? "none" : "auto",
       transition: "opacity .5s ease",
     }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 11 }}>
-        <span style={{ width: 14, height: 14, borderRadius: "50%", background: C.accent, flexShrink: 0 }} />
+      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+        {/* Generic basketball, our own vector — no third-party marks (CLAUDE.md → Imagery). */}
+        <svg width="28" height="28" viewBox="0 0 100 100" aria-hidden style={{ flexShrink: 0, display: "block" }}>
+          <circle cx="50" cy="50" r="46" fill={C.accent} stroke={C.rule} strokeWidth="4" />
+          <g fill="none" stroke={C.rule} strokeWidth="4.5" strokeLinecap="round">
+            <path d="M50 5 V95" />
+            <path d="M5 50 H95" />
+            <path d="M50 5 C 20 27 20 73 50 95" />
+            <path d="M50 5 C 80 27 80 73 50 95" />
+          </g>
+        </svg>
         <span style={{ fontFamily: DISPLAY, fontSize: 37, fontWeight: 600, letterSpacing: 2.5, textTransform: "uppercase", color: C.text, lineHeight: 1 }}>Courtside</span>
       </div>
       <span style={{ width: 132, height: 1.5, background: C.rule, marginTop: 16, opacity: .85 }} />
