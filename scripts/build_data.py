@@ -189,9 +189,9 @@ def build(csv_dir: Path, out_dir: Path):
         lgc = Counter()
         for d in per.values(): lgc.update(d["c"])
         tc = sum(lgc.values())
-        LG = {"freq":[round(lg[i][0]/tot*100,1) for i in range(len(ZONES))],
-              "fg":  [round(lg[i][1]/lg[i][0]*100,1) for i in range(len(ZONES))],
-              "create":[round(lgc[b]/tc*100,1) for b in CREATE]}
+        LG = {"freq":[round(lg[i][0]/tot*100,1) if tot else 0 for i in range(len(ZONES))],
+              "fg":  [round(lg[i][1]/lg[i][0]*100,1) if lg[i][0] else None for i in range(len(ZONES))],
+              "create":[round(lgc[b]/tc*100,1) if tc else 0 for b in CREATE]}
         SP = {}
         for a,d in per.items():
             n = sum(x[0] for x in d["z"])

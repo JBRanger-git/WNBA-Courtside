@@ -56,37 +56,40 @@ is_layup <- grepl("layup|dunk|tip shot|putback|alley", sh$.type, ignore.case = T
 
 fga <- sh[!is_ft, ]                          # field-goal attempts only
 f3  <- is_3[!is_ft]; flay <- is_layup[!is_ft]
-x <- fga$.x; y <- fga$.y
+# ESPN WNBA coordinates are FULL COURT: x is the 94-ft length (both baskets,
+# 0 = centre), y is the 50-ft width (0 = centre). Fold abs(x) so both baskets
+# map to one end; the hoop then sits at (HX≈41.75, 0) and units are feet.
+ax <- abs(fga$.x); y <- fga$.y
 
-# --- auto-calibration ------------------------------------------------------
-CX <- median(x, na.rm = TRUE)                # hoop x = centre of the shot cloud
-HY <- median(y[flay], na.rm = TRUE)          # hoop y = where layups happen
-if (!is.finite(HY)) HY <- min(y, na.rm = TRUE)
-rawd <- sqrt((x - CX)^2 + (y - HY)^2)        # distance in raw coordinate units
-raw3 <- median(rawd[f3], na.rm = TRUE)       # median 3-pointer, raw units
-UNIT <- if (is.finite(raw3) && raw3 > 0) 23.75 / raw3 else 1
-dist <- rawd * UNIT                          # distance in feet
-sideft <- abs(x - CX) * UNIT                 # horizontal offset in feet
-baseft <- (y - HY) * UNIT                    # distance up-court in feet
+# --- auto-calibration (robust to the exact units/scale) --------------------
+HX <- median(ax[flay], na.rm = TRUE)         # hoop distance along length: layups
+HY <- median(y[flay],  na.rm = TRUE)         # hoop offset across width (~0)
+if (!is.finite(HX)) HX <- 41.75
+if (!is.finite(HY)) HY <- 0
+rawd <- sqrt((ax - HX)^2 + (y - HY)^2)       # distance in raw coordinate units
+raw3 <- median(rawd[f3], na.rm = TRUE)       # median 3-pointer ≈ 22.9 ft
+UNIT <- if (is.finite(raw3) && raw3 > 0) 22.9 / raw3 else 1
+dist  <- rawd * UNIT                         # distance from hoop, feet
+lat   <- abs(y - HY) * UNIT                  # lateral offset toward the sidelines
+depth <- (HX - ax) * UNIT                    # toward mid-court (neg = baseline side)
 
-message(sprintf("calibration — CX=%.1f HY=%.1f raw3=%.1f UNIT=%.4f  (layup med dist=%.1fft)",
-                CX, HY, raw3, UNIT, median(dist[flay], na.rm = TRUE)))
+message(sprintf("calibration — HX=%.1f HY=%.1f raw3=%.1f UNIT=%.4f  (layup med dist=%.1fft)",
+                HX, HY, raw3, UNIT, median(dist[flay], na.rm = TRUE)))
 message(sprintf("coordinate_x [%.1f, %.1f]  coordinate_y [%.1f, %.1f]  NA-coord FGA=%d",
-                min(x, na.rm = TRUE), max(x, na.rm = TRUE),
-                min(y, na.rm = TRUE), max(y, na.rm = TRUE), sum(is.na(x))))
+                min(fga$.x, na.rm = TRUE), max(fga$.x, na.rm = TRUE),
+                min(y, na.rm = TRUE), max(y, na.rm = TRUE), sum(is.na(ax))))
 
 # --- classify every FGA into exactly one of the five zones -----------------
 zone <- character(nrow(fga))
 for (i in seq_len(nrow(fga))) {
   if (f3[i]) {
-    zone[i] <- if (!is.na(sideft[i]) && sideft[i] >= 18 &&
-                   (is.na(baseft[i]) || baseft[i] <= 9)) "Corner 3" else "Above the Break 3"
+    zone[i] <- if (!is.na(lat[i]) && lat[i] >= 19) "Corner 3" else "Above the Break 3"
   } else if (is.na(dist[i])) {
     zone[i] <- if (flay[i]) "Restricted Area" else "Mid-Range"   # coord-less fallback
   } else if (dist[i] <= 4) {
     zone[i] <- "Restricted Area"
-  } else if (sideft[i] <= 8 && dist[i] <= 19) {
-    zone[i] <- "In the Paint"
+  } else if (lat[i] <= 8 && depth[i] <= 10 && depth[i] >= -3) {
+    zone[i] <- "In the Paint"                # inside the 16-ft key, out to the FT line
   } else {
     zone[i] <- "Mid-Range"
   }
