@@ -30,11 +30,18 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ${{ env.R_LIBS_USER }}
-          key: r-wehoop-${{ runner.os }}-v1
+          key: r-wehoop-${{ runner.os }}-v2
 
       - name: Install R packages
         shell: Rscript {0}
-        run: install.packages(c("wehoop", "dplyr", "tidyr", "readr"))
+        # arrow is required: wehoop's ID columns are integer64 and only
+        # materialise when the parquet path is used (arrow present). Without it
+        # they read as NA. Skip packages already restored from cache so warm
+        # runs are fast.
+        run: |
+          pkgs <- c("wehoop", "dplyr", "readr", "arrow", "bit64")
+          need <- pkgs[!vapply(pkgs, requireNamespace, logical(1), quietly = TRUE)]
+          if (length(need)) install.packages(need)
 
       - name: Set up Node
         uses: actions/setup-node@v4

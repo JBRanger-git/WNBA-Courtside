@@ -22,9 +22,20 @@
 # Run:  Rscript scripts/fetch_wnba.R      (WNBA_SEASON env overrides the year)
 # =============================================================================
 suppressPackageStartupMessages({
-  library(wehoop); library(dplyr); library(readr)
+  library(wehoop); library(dplyr); library(readr); library(bit64)
 })
 options(dplyr.summarise.inform = FALSE)
+
+# wehoop's ID columns are integer64. Coerce every ID to character right after
+# load so joins/distinct/CSV writing are free of integer64 quirks, and so a
+# failed (all-NA) read is caught by the guard below rather than silently
+# collapsing every table to one row.
+chr_ids <- function(df) {
+  ids <- c("team_id", "athlete_id", "game_id", "home_id", "away_id",
+           "home_team_id", "away_team_id", "opponent_team_id")
+  for (nm in intersect(ids, names(df))) df[[nm]] <- as.character(df[[nm]])
+  df
+}
 
 SEASON <- as.integer(Sys.getenv("WNBA_SEASON", unset = format(Sys.Date(), "%Y")))
 OUT <- "data/csv"; dir.create(OUT, recursive = TRUE, showWarnings = FALSE)
@@ -40,8 +51,8 @@ regular <- function(df) {
 # pick a column by name if present, else a constant vector of the right length
 pick <- function(df, name, default = NA) if (name %in% names(df)) df[[name]] else rep(default, nrow(df))
 
-player_box <- load_wnba_player_box(seasons = SEASON)
-sched      <- load_wnba_schedule(seasons = SEASON)
+player_box <- chr_ids(load_wnba_player_box(seasons = SEASON))
+sched      <- chr_ids(load_wnba_schedule(seasons = SEASON))
 message("loaded rows — player_box: ", nrow(player_box), "  schedule: ", nrow(sched))
 stopifnot(nrow(player_box) > 0, nrow(sched) > 0)
 
@@ -49,6 +60,12 @@ pb <- regular(player_box)
 sc <- regular(sched)
 message("regular-season rows — player_box: ", nrow(pb), "  schedule: ", nrow(sc),
         "  distinct teams: ", dplyr::n_distinct(pb$team_id))
+# Guard: if the integer64 IDs failed to materialise they come back all-NA and
+# every derived table collapses to one garbage row. Fail loudly instead.
+if (dplyr::n_distinct(pb$team_id) < 2 || all(is.na(pb$team_id)))
+  stop("team_id is degenerate (all NA?) — wehoop's integer64 IDs did not ",
+       "materialise. The 'arrow' package must be installed so the parquet ",
+       "sibling is read. See CLAUDE.md / backfill_history.R.")
 
 # --- one row per team per game (scores, home/away) from player_box ---------
 tg <- pb |>
