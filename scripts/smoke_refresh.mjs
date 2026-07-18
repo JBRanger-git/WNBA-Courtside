@@ -18,8 +18,13 @@ const checks = [
   ['players present',                     D.P.length > 50],
   ['usage is a percent not a fraction',   usages.every(u => u < 100) && Math.max(...usages) > 1],
   ['ppg values are sane',                 D.P.every(p => p[6] >= 0 && p[6] < 60)],
-  ['shot fingerprints preserved',         D.SHOTS && Object.keys(D.SHOTS.P).length > 100],
+  ['shot fingerprints present',           D.SHOTS && Object.keys(D.SHOTS.P).length > 100],
   ['zone freqs sum to ~100 per player',   Object.values(D.SHOTS.P).every(p => Math.abs(p.f.reduce((a, b) => a + b, 0) - 100) < 0.6)],
+  // Zone-geometry sanity: the restricted area must be the most efficient zone
+  // (~60%), and corner threes must beat above-the-break threes. Catches a
+  // miscalibrated shot-zone derivation before it can be committed.
+  ['restricted area is the top-FG% zone', D.SHOTS.LG.fg[0] === Math.max(...D.SHOTS.LG.fg) && D.SHOTS.LG.fg[0] >= 55 && D.SHOTS.LG.fg[0] <= 72],
+  ['corner 3 FG% >= above-break 3 FG%',   D.SHOTS.LG.fg[3] >= D.SHOTS.LG.fg[4] - 1],
   ['bundle embeds the data',              js.length > 50000],
   ['bundle has no raw pbp leak',          js.length < 400000],
 ];

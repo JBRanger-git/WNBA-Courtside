@@ -1,0 +1,79 @@
+name: Refresh WNBA shot charts
+
+# Weekly full refresh: like the daily job, but ALSO pulls play-by-play and
+# regenerates the shot fingerprint (the daily job preserves it untouched, since
+# it's the heaviest pull and the riskiest thing to regenerate). Runs on GitHub's
+# servers; commits the refreshed snapshot only if it changed and passed the gate.
+on:
+  schedule:
+    - cron: '30 10 * * 1'      # weekly, Mondays 10:30 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: refresh-data          # share the daily job's group so the two never overlap
+  cancel-in-progress: false
+
+jobs:
+  refresh-shots:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up R
+        uses: r-lib/actions/setup-r@v2
+        with:
+          use-public-rspm: true
+
+      - name: Cache R packages
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.R_LIBS_USER }}
+          key: r-wehoop-${{ runner.os }}-v2
+
+      - name: Install R packages
+        shell: Rscript {0}
+        run: |
+          pkgs <- c("wehoop", "dplyr", "readr", "arrow", "bit64")
+          need <- pkgs[!vapply(pkgs, requireNamespace, logical(1), quietly = TRUE)]
+          if (length(need)) install.packages(need)
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Fetch fresh data (R → CSV)
+        run: Rscript scripts/fetch_wnba.R
+
+      - name: Fetch play-by-play → shot zones (R → CSV)
+        run: Rscript scripts/fetch_shots.R
+
+      - name: Rebuild snapshot (CSV → JSON, incl. fingerprints)
+        run: python3 scripts/build_data.py ./data/csv ./src/data
+
+      - name: Build and check invariants
+        run: |
+          npm ci
+          npm run build
+          node scripts/smoke_refresh.mjs
+
+      - name: Commit if the data changed
+        run: |
+          git config user.name  "courtside-data-bot"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          if git diff --quiet -- src/data/app-data.json; then
+            echo "No change in app-data.json — nothing to commit."
+          else
+            git add src/data/app-data.json
+            git commit -m "data: weekly shot-chart refresh $(date -u +%Y-%m-%d)"
+            git push origin HEAD:${{ github.ref_name }}
+            echo "Pushed refreshed snapshot."
+          fi
