@@ -7,17 +7,19 @@ Steps marked **[decide]** are yours to settle before shipping.
 
 ---
 
-## 0. Settle first — data source **[decide]**
+## 0. Data source — decision recorded
 
 Courtside's data is produced with `wehoop`, which wraps ESPN's undocumented
-endpoints. That is fine for a private dashboard but is a **terms-of-service
-question for a publicly distributed app** — and it does not turn on whether the
-app makes money. See `CLAUDE.md` → "Future: going live" and `SETUP.md` Part 4.
+endpoints (see `CLAUDE.md` → "Future: going live" and `SETUP.md` Part 4).
 
-The app deliberately ships **no logos and no headshots** so this stays a
-one-variable problem: the only open question is the stats feed itself. Resolve
-this before uploading anything. Nothing below matters if the listing gets pulled
-for it.
+**Decision: proceeding.** Courtside ships as a free, non-commercial fan project.
+It carries **no team logos and no player headshots** — only publicly available
+statistics — and makes no claim of affiliation with or endorsement by the WNBA
+or any team (the listing and privacy policy both say so). We're going ahead on
+that basis.
+
+Keep it that way: the "no imagery" boundary is what keeps this simple, so don't
+reintroduce crests, faces, or any third-party asset (`CLAUDE.md` → Imagery).
 
 ---
 
@@ -123,8 +125,9 @@ Part 2) so you catch a white screen before uploading.
 1. **Create a Play Console account** — one-off $25 developer registration.
 2. **Create the app** — name "Courtside", default language, free, "App" type.
 3. **Privacy policy URL** — required. Host `docs/privacy.html` somewhere public
-   (GitHub Pages works) and paste the URL. Fill in the `<your-contact-email>`
-   placeholder in both `PRIVACY.md` and `docs/privacy.html` first.
+   (GitHub Pages works) and paste the URL. Contact email is already set to
+   `raiappsdev@gmail.com`; use the same address for the Console's developer
+   contact so they match.
 4. **Data Safety form** — for Courtside this is almost entirely "No":
    - Does your app collect or share user data? **No.**
    - Data types collected: **none**.
@@ -167,7 +170,7 @@ No third-party imagery in any screenshot or graphic — same rule as the app
 
 ## Quick gate before you upload
 
-- [ ] Data-source ToS question settled (§0)
+- [x] Data source — decision recorded, proceeding as a fan project (§0)
 - [ ] `npm run verify` green
 - [ ] `versionCode` incremented (§1)
 - [ ] `targetSdkVersion = 35` (§2a)

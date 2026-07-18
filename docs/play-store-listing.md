@@ -54,8 +54,8 @@ Enjoy the app? It stays free and ad-free — no catch.
 
 ## Notes
 
-- Fill in the `<your-contact-email>` placeholder in `PRIVACY.md` /
-  `docs/privacy.html` before you paste the privacy URL into the Console.
+- Privacy contact is `raiappsdev@gmail.com` (set in `PRIVACY.md` /
+  `docs/privacy.html`); host the page and paste its URL into the Console.
 - **App category:** Sports.
 - **Tags/keywords** (Console picks these from the description; no keyword field):
   keep "WNBA", "stats", "box score", "shot chart" prominent in the full text.

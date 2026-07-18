@@ -51,4 +51,4 @@ revised policy will be published at the same URL.
 
 ## Contact
 
-Questions about this policy: **<your-contact-email>**
+Questions about this policy: **raiappsdev@gmail.com**
