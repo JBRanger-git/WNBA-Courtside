@@ -198,7 +198,7 @@ function Splash({ done }) {
       </div>
       <span style={{ width: 132, height: 1.5, background: C.rule, marginTop: 16, opacity: .85 }} />
       <span style={{ marginTop: 12, fontSize: 10, letterSpacing: 3.5, textTransform: "uppercase", color: C.sec, fontWeight: 700 }}>WNBA statistics</span>
-      <span style={{ position: "absolute", bottom: 30, fontSize: 8.5, letterSpacing: 2, textTransform: "uppercase", color: C.mute, fontWeight: 600 }}>Agate · Chalk Court</span>
+      <span style={{ position: "absolute", bottom: 30, fontSize: 8.5, letterSpacing: 2, textTransform: "uppercase", color: C.mute, fontWeight: 600 }}>A WNBA Fan Project</span>
     </div>
   );
 }
