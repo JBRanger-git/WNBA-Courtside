@@ -9,13 +9,13 @@ Keep third-party imagery out of every screenshot and graphic.
 ## App name (30 char max)
 
 ```
-Courtside: WNBA Stats
+WNBA Courtside
 ```
 
 ## Short description (80 char max)
 
 ```
-WNBA stats, box scores & shot charts. No ads, no tracking, no sign-up.
+WNBA stats, box scores & shot charts. No ads, no sign-up.
 ```
 *(70 chars.)*
 
@@ -23,7 +23,10 @@ WNBA stats, box scores & shot charts. No ads, no tracking, no sign-up.
 
 ```
 Courtside is a fast, clean WNBA statistics app for fans who just want the
-numbers — laid out like a newspaper box-score page, not a flashy TV graphic.
+numbers — laid out like a newspaper box-score page.
+
+This project has come from some personal work around creating data visualisation for the WNBA as a learning excercise.
+It has now been taken one step further in creating an app for people to use!
 
 WHAT'S INSIDE
 • Standings and team pages — records, splits and season figures.
@@ -33,23 +36,12 @@ WHAT'S INSIDE
 • Schedule — upcoming games at a glance.
 • Search — jump straight to any team or player.
 
-DESIGN
-"Chalk Court" — warm cream, condensed display type, hairline rules and
-tabular numerals. A reference almanac you can actually read, built for one
-thing: showing you true numbers quickly.
-
-PRIVACY, BY DESIGN
-• No ads. None. Nowhere.
-• No tracking — no advertising ID, no analytics, no profiling.
-• No account and no sign-up.
-• No network access — the app talks to no server. Everything is bundled in,
-  so there is nothing to collect and nothing to leak.
-
 Courtside is a free, independent fan project. It is not affiliated with,
 endorsed by, or sponsored by the WNBA or any team. It ships no team logos and
 no player photos.
 
-Enjoy the app? It stays free and ad-free — no catch.
+This project was made using AI as a learning tool. But open to the public to use as it could be fun!
+
 ```
 
 ## Notes
