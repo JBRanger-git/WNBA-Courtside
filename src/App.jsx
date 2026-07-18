@@ -142,16 +142,34 @@ export default function CourtsideApp() {
   const back = () => setStack(null);
 
   return (
-    <div style={{ background: "#D8D5CB", minHeight: "100vh", display: "flex", justifyContent: "center", alignItems: "flex-start", padding: "20px 12px", fontFamily: BODY }}>
+    <div className="cs-shell" style={{ fontFamily: BODY }}>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=Roboto:wght@400;500;700&display=swap');
         .noscroll::-webkit-scrollbar{display:none}
         .noscroll{scrollbar-width:none}
         @media (prefers-reduced-motion: reduce){*{transition:none!important}}
+
+        /* Desktop / dev preview: render inside a phone bezel so the app reads as
+           the mobile product it is. On an actual phone this frame would paint a
+           fake device inside the real one, so the media query below strips it. */
+        .cs-shell{background:#D8D5CB;min-height:100vh;display:flex;justify-content:center;align-items:flex-start;padding:20px 12px}
+        .cs-frame{width:393px;background:#111;border-radius:42px;padding:10px;box-shadow:0 24px 70px rgba(0,0,0,.4)}
+        .cs-screen{background:${C.page};border-radius:33px;overflow:hidden;display:flex;flex-direction:column;height:800px;position:relative}
+
+        /* Real phone (and the shipped APK): fill the device edge-to-edge. No
+           bezel, no shadow, no fake status bar — the OS draws its own. Height
+           follows the safe-area-padded body (index.css), so nothing hides under
+           the notch or gesture bar. */
+        @media (max-width:480px){
+          .cs-shell{background:${C.page};padding:0;align-items:stretch;min-height:100dvh}
+          .cs-frame{width:100%;border-radius:0;padding:0;box-shadow:none;background:${C.page};display:flex;flex-direction:column}
+          .cs-screen{border-radius:0;height:auto;flex:1}
+          .cs-statusbar{display:none!important}
+        }
       `}</style>
 
-      <div style={{ width: 393, background: "#111", borderRadius: 42, padding: 10, boxShadow: "0 24px 70px rgba(0,0,0,.4)" }}>
-        <div style={{ background: C.page, borderRadius: 33, overflow: "hidden", display: "flex", flexDirection: "column", height: 800, position: "relative" }}>
+      <div className="cs-frame">
+        <div className="cs-screen">
 
           <Splash done={ready} />
 
@@ -215,7 +233,7 @@ function Splash({ done }) {
 // ============================================================================
 function StatusBar() {
   return (
-    <div style={{ display: "flex", justifyContent: "space-between", padding: "9px 24px 3px", fontSize: 12, fontWeight: 500, color: C.text, ...agate }}>
+    <div className="cs-statusbar" style={{ display: "flex", justifyContent: "space-between", padding: "9px 24px 3px", fontSize: 12, fontWeight: 500, color: C.text, ...agate }}>
       <span>9:41</span><span style={{ letterSpacing: 1 }}>▮▮▮ 5G ▮</span>
     </div>
   );
