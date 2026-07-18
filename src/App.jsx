@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import DATA from "./data/app-data.json";
 import { Home, Shield, Users, CalendarDays, ChevronLeft, ChevronRight, Search, MoreHorizontal } from "lucide-react";
 
@@ -129,6 +129,14 @@ export default function CourtsideApp() {
   const [tab, setTab] = useState("home");
   const [stack, setStack] = useState(null); // {type:'team'|'player', id}
   const [search, setSearch] = useState(false);
+  const [ready, setReady] = useState(false); // drives the splash fade-out
+
+  // Hold the brand splash briefly, then fade into the app. (When we move to
+  // fetch-at-runtime, flip `ready` after the data resolves instead of a timer.)
+  useEffect(() => {
+    const t = setTimeout(() => setReady(true), 1100);
+    return () => clearTimeout(t);
+  }, []);
 
   const open = (type, id) => { setSearch(false); setStack({ type, id }); };
   const back = () => setStack(null);
@@ -143,7 +151,9 @@ export default function CourtsideApp() {
       `}</style>
 
       <div style={{ width: 393, background: "#111", borderRadius: 42, padding: 10, boxShadow: "0 24px 70px rgba(0,0,0,.4)" }}>
-        <div style={{ background: C.page, borderRadius: 33, overflow: "hidden", display: "flex", flexDirection: "column", height: 800 }}>
+        <div style={{ background: C.page, borderRadius: 33, overflow: "hidden", display: "flex", flexDirection: "column", height: 800, position: "relative" }}>
+
+          <Splash done={ready} />
 
           <StatusBar />
 
@@ -166,6 +176,29 @@ export default function CourtsideApp() {
           <TabBar tab={tab} setTab={(t) => { setStack(null); setTab(t); }} />
         </div>
       </div>
+    </div>
+  );
+}
+
+// Launch splash. Same cream background + Courtside mark as the native splash
+// (capacitor.config.json), so the native → web handoff is seamless. `done`
+// fades it out to reveal the app; it stays mounted (just transparent) so it
+// can be reused as a data-loading gate once we move to fetch-at-runtime.
+function Splash({ done }) {
+  return (
+    <div aria-hidden style={{
+      position: "absolute", inset: 0, zIndex: 60, background: C.page,
+      display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+      opacity: done ? 0 : 1, pointerEvents: done ? "none" : "auto",
+      transition: "opacity .5s ease",
+    }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 11 }}>
+        <span style={{ width: 14, height: 14, borderRadius: "50%", background: C.accent, flexShrink: 0 }} />
+        <span style={{ fontFamily: DISPLAY, fontSize: 37, fontWeight: 600, letterSpacing: 2.5, textTransform: "uppercase", color: C.text, lineHeight: 1 }}>Courtside</span>
+      </div>
+      <span style={{ width: 132, height: 1.5, background: C.rule, marginTop: 16, opacity: .85 }} />
+      <span style={{ marginTop: 12, fontSize: 10, letterSpacing: 3.5, textTransform: "uppercase", color: C.sec, fontWeight: 700 }}>WNBA statistics</span>
+      <span style={{ position: "absolute", bottom: 30, fontSize: 8.5, letterSpacing: 2, textTransform: "uppercase", color: C.mute, fontWeight: 600 }}>Agate · Chalk Court</span>
     </div>
   );
 }

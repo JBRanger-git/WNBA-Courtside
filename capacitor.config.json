@@ -4,5 +4,15 @@
   "webDir": "dist",
   "android": {
     "backgroundColor": "#F4F2EC"
+  },
+  "plugins": {
+    "SplashScreen": {
+      "launchAutoHide": false,
+      "backgroundColor": "#F4F2EC",
+      "showSpinner": false,
+      "androidScaleType": "CENTER_INSIDE",
+      "splashFullScreen": true,
+      "splashImmersive": false
+    }
   }
 }

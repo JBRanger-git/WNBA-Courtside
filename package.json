@@ -15,9 +15,10 @@
     "android": "npm run sync && npx cap open android"
   },
   "dependencies": {
+    "@capacitor/splash-screen": "^6.0.4",
+    "lucide-react": "^0.383.0",
     "react": "^18.3.1",
-    "react-dom": "^18.3.1",
-    "lucide-react": "^0.383.0"
+    "react-dom": "^18.3.1"
   },
   "devDependencies": {
     "@capacitor/android": "^6.1.2",

@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <!-- Courtside brand mark. Font-free (pure geometry) so it rasterises reliably
+       through @capacitor/assets. Chalk Court palette: cream #F4F2EC, ink #15151C,
+       accent #FE5000. A dark "C" arc opening onto the orange accent dot. -->
+  <rect width="1024" height="1024" fill="#F4F2EC"/>
+  <path d="M 717 369 A 250 250 0 1 0 717 655"
+        fill="none" stroke="#15151C" stroke-width="86" stroke-linecap="round"/>
+  <circle cx="773" cy="512" r="46" fill="#FE5000"/>
+</svg>
