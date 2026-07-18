@@ -38,6 +38,7 @@ const PLAYERS = RAW.P.map(([id, name, teamId, pos, gp, mpg, ppg, rpg, apg, spg, 
   ({ id, name, teamId, pos, gp, mpg, ppg, rpg, apg, spg, bpg, topg, fg, tp, ft, ts, usg, tpa, team: TEAM[teamId], bio: BIO[id] || {} }));
 const GAMES = RAW.G.map(([id, date, homeId, awayId, hs, as_, net, tier, city, done]) =>
   ({ id, date, homeId, awayId, hs, as: as_, net, tier, city, done: !!done, home: TEAM[homeId], away: TEAM[awayId] }));
+const GAME = Object.fromEntries(GAMES.map(g => [g.id, g]));
 const NEWS = RAW.N.map(([headline, byline, abbr, date]) => ({ headline, byline, abbr, date }));
 
 // ---- theme (from wnba-chalk-court-theme.json) --------------------------------
@@ -142,7 +143,7 @@ export default function CourtsideApp() {
   const back = () => setStack(null);
 
   return (
-    <div style={{ background: "#D8D5CB", minHeight: "100vh", display: "flex", justifyContent: "center", alignItems: "flex-start", padding: "20px 12px", fontFamily: BODY }}>
+    <div style={{ background: C.page, height: "100%", display: "flex", flexDirection: "column", position: "relative", overflow: "hidden", fontFamily: BODY }}>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=Roboto:wght@400;500;700&display=swap');
         .noscroll::-webkit-scrollbar{display:none}
@@ -150,32 +151,27 @@ export default function CourtsideApp() {
         @media (prefers-reduced-motion: reduce){*{transition:none!important}}
       `}</style>
 
-      <div style={{ width: 393, background: "#111", borderRadius: 42, padding: 10, boxShadow: "0 24px 70px rgba(0,0,0,.4)" }}>
-        <div style={{ background: C.page, borderRadius: 33, overflow: "hidden", display: "flex", flexDirection: "column", height: 800, position: "relative" }}>
+      <Splash done={ready} />
 
-          <Splash done={ready} />
+      {search && <SearchOverlay open={open} close={() => setSearch(false)} />}
 
-          <StatusBar />
+      {stack ? (
+        stack.type === "team"
+          ? <TeamDetail team={TEAM[stack.id]} onBack={back} openPlayer={(id) => open("player", id)} openGame={(id) => open("game", id)} />
+          : stack.type === "game"
+            ? <GameDetail game={GAME[stack.id]} onBack={back} openTeam={(id) => open("team", id)} />
+            : <PlayerDetail player={PLAYERS.find(p => p.id === stack.id)} onBack={back} openTeam={(id) => open("team", id)} />
+      ) : (
+        <>
+          {tab === "home" && <HomeScreen open={open} onSearch={() => setSearch(true)} />}
+          {tab === "teams" && <TeamsScreen open={open} onSearch={() => setSearch(true)} />}
+          {tab === "players" && <PlayersScreen open={open} />}
+          {tab === "schedule" && <ScheduleScreen open={open} />}
+          {tab === "more" && <MoreScreen />}
+        </>
+      )}
 
-          {search && <SearchOverlay open={open} close={() => setSearch(false)} />}
-
-          {stack ? (
-            stack.type === "team"
-              ? <TeamDetail team={TEAM[stack.id]} onBack={back} openPlayer={(id) => open("player", id)} />
-              : <PlayerDetail player={PLAYERS.find(p => p.id === stack.id)} onBack={back} openTeam={(id) => open("team", id)} />
-          ) : (
-            <>
-              {tab === "home" && <HomeScreen open={open} onSearch={() => setSearch(true)} />}
-              {tab === "teams" && <TeamsScreen open={open} onSearch={() => setSearch(true)} />}
-              {tab === "players" && <PlayersScreen open={open} />}
-              {tab === "schedule" && <ScheduleScreen />}
-              {tab === "more" && <MoreScreen />}
-            </>
-          )}
-
-          <TabBar tab={tab} setTab={(t) => { setStack(null); setTab(t); }} />
-        </div>
-      </div>
+      <TabBar tab={tab} setTab={(t) => { setStack(null); setTab(t); }} />
     </div>
   );
 }
@@ -213,14 +209,6 @@ function Splash({ done }) {
 }
 
 // ============================================================================
-function StatusBar() {
-  return (
-    <div style={{ display: "flex", justifyContent: "space-between", padding: "9px 24px 3px", fontSize: 12, fontWeight: 500, color: C.text, ...agate }}>
-      <span>9:41</span><span style={{ letterSpacing: 1 }}>▮▮▮ 5G ▮</span>
-    </div>
-  );
-}
-
 function Masthead({ title, sub, onSearch }) {
   return (
     <div style={{ padding: "8px 16px 10px", borderBottom: `2px solid ${C.rule}`, display: "flex", alignItems: "flex-end", justifyContent: "space-between" }}>
@@ -286,9 +274,16 @@ function SearchOverlay({ open, close }) {
 // ---- the score rail: the strip every sports app has, in agate ---------------
 function ScoreRail({ open }) {
   const days = useMemo(() => {
-    const m = {};
-    GAMES.forEach(g => { (m[g.date] ||= []).push(g); });
-    return Object.entries(m).slice(0, 6);
+    const byDate = {};
+    GAMES.forEach(g => { (byDate[g.date] ||= []).push(g); });
+    // Latest results first: take the most recent days that have completed games
+    // so the rail is current, not stuck on opening week.
+    const recent = Object.keys(byDate)
+      .filter(d => byDate[d].some(g => g.done))
+      .sort()          // ISO dates ascending
+      .slice(-6)       // last six days with results
+      .reverse();      // newest first
+    return recent.map(d => [d, byDate[d].filter(g => g.done)]);
   }, []);
   return (
     <div className="noscroll" style={{ display: "flex", gap: 0, overflowX: "auto", background: C.visual, borderBottom: `1px solid ${C.border}` }}>
@@ -297,7 +292,7 @@ function ScoreRail({ open }) {
           <div style={{ fontSize: 8.5, letterSpacing: 1, color: C.sec, padding: "5px 10px 3px", fontWeight: 700, textTransform: "uppercase", background: C.stripe }}>{fmtDate(date)}</div>
           <div style={{ display: "flex" }}>
             {gs.map(g => (
-              <button key={g.id} style={{ border: "none", background: "none", padding: "6px 10px 8px", borderRight: `1px solid ${C.stripe}`, textAlign: "left", cursor: "pointer" }}>
+              <button key={g.id} onClick={() => open("game", g.id)} style={{ border: "none", background: "none", padding: "6px 10px 8px", borderRight: `1px solid ${C.stripe}`, textAlign: "left", cursor: "pointer" }}>
                 <RailSide t={g.away} score={g.as} win={g.done && g.as > g.hs} done={g.done} />
                 <RailSide t={g.home} score={g.hs} win={g.done && g.hs > g.as} done={g.done} />
                 {!g.done && <div style={{ fontSize: 7.5, color: g.tier === "N" ? C.accent : C.mute, fontWeight: 700, marginTop: 2, letterSpacing: .3 }}>{g.net.replace("WNBA ", "")}</div>}
@@ -343,7 +338,7 @@ function HomeScreen({ open, onSearch }) {
 
   return (
     <>
-      <Masthead title="Courtside" sub="2026 · WK 10" onSearch={onSearch} />
+      <Masthead title="Courtside" sub="2026 Season" onSearch={onSearch} />
       <ScoreRail open={open} />
       <div className="noscroll" style={{ flex: 1, overflowY: "auto", padding: "0 14px 12px" }}>
 
@@ -503,7 +498,7 @@ function PlayersScreen({ open }) {
 }
 
 // ============================================================================
-function ScheduleScreen() {
+function ScheduleScreen({ open }) {
   const days = useMemo(() => {
     const m = {};
     // Upcoming only: a game is "played" iff it has box-score rows (g.done). Show the rest.
@@ -529,7 +524,7 @@ function ScheduleScreen() {
               {new Date(date + "T12:00:00").toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" })}
             </div>
             {gs.map(g => (
-              <div key={g.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "9px 0", borderBottom: `1px solid ${C.border}` }}>
+              <div key={g.id} onClick={() => open("game", g.id)} style={{ display: "flex", alignItems: "center", gap: 8, padding: "9px 0", borderBottom: `1px solid ${C.border}`, cursor: "pointer" }}>
                 <div style={{ flex: 1 }}>
                   <SchedSide t={g.away} score={g.as} win={g.done && g.as > g.hs} done={g.done} />
                   <SchedSide t={g.home} score={g.hs} win={g.done && g.hs > g.as} done={g.done} prefix="vs" />
@@ -571,6 +566,81 @@ function DetailHead({ color, onBack, eyebrow, title, right, badge }) {
         {right}
       </div>
     </div>
+  );
+}
+
+// ============================================================================
+// Game page. The bundle carries final score, teams, venue and broadcast per
+// game — not a full box score (that needs per-game team/player box rows added
+// to build_data.py and a data regen). So this shows the result plus each club's
+// season form as context, and links through to both team pages.
+function GameDetail({ game: g, onBack, openTeam }) {
+  if (!g || !g.home || !g.away) return null;
+  const awaySt = STANDINGS.find(s => s.id === g.awayId) || {};
+  const homeSt = STANDINGS.find(s => s.id === g.homeId) || {};
+  const awayWin = g.done && g.as > g.hs;
+  const homeWin = g.done && g.hs > g.as;
+  const dateLabel = new Date(g.date + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric" });
+  const winner = awayWin ? g.away : g.home;
+
+  const TeamLine = ({ team, st, score, win }) => (
+    <button onClick={() => openTeam(team.id)} style={{ width: "100%", display: "flex", alignItems: "center", gap: 11, padding: "13px 4px", border: "none", borderBottom: `1px solid ${C.border}`, background: "none", cursor: "pointer", textAlign: "left" }}>
+      <Crest team={team} size={40} />
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontFamily: DISPLAY, fontWeight: 600, fontSize: 15.5, letterSpacing: .3, textTransform: "uppercase", color: C.text, lineHeight: 1.1 }}>{team.name}</div>
+        <div style={{ fontSize: 10, color: C.sec, marginTop: 1 }}>{st.w != null ? `${st.w}–${st.l}` : "—"}</div>
+      </div>
+      {win && <span style={{ fontSize: 8, fontWeight: 700, letterSpacing: .6, color: C.accent, marginRight: 2 }}>WIN</span>}
+      <span style={{ fontFamily: DISPLAY, fontSize: 30, fontWeight: 700, color: g.done ? (win ? C.text : C.mute) : C.mute, ...agate }}>{g.done ? score : "–"}</span>
+    </button>
+  );
+
+  return (
+    <>
+      <DetailHead color={winner.color} onBack={onBack} eyebrow={g.done ? "Final" : "Upcoming"} title={`${g.away.abbr} @ ${g.home.abbr}`} />
+      <div className="noscroll" style={{ flex: 1, overflowY: "auto", padding: "0 14px 16px" }}>
+        <div style={{ paddingTop: 4 }}>
+          <TeamLine team={g.away} st={awaySt} score={g.as} win={awayWin} />
+          <TeamLine team={g.home} st={homeSt} score={g.hs} win={homeWin} />
+        </div>
+
+        <div style={{ display: "flex", flexWrap: "wrap", gap: "4px 18px", padding: "12px 2px 2px", fontSize: 11, color: C.sec }}>
+          <span style={{ color: C.text, fontWeight: 500 }}>{dateLabel}</span>
+          {g.city && <span>{g.city}</span>}
+          {g.net && <span>{g.net.replace("WNBA ", "")}</span>}
+        </div>
+
+        <SectionHead>Season form</SectionHead>
+        <table style={{ width: "100%", borderCollapse: "collapse" }}>
+          <thead><tr>
+            <th style={{ ...thStyle, textAlign: "left" }}>Team</th>
+            <th style={thStyle}>REC</th><th style={thStyle}>PF</th><th style={thStyle}>PA</th>
+            <th style={thStyle}>STRK</th><th style={thStyle}>L10</th>
+          </tr></thead>
+          <tbody>
+            {[[g.away, awaySt], [g.home, homeSt]].map(([t, st], i) => (
+              <tr key={t.id} style={{ background: i % 2 ? C.stripe : "transparent", borderBottom: `1px solid ${C.border}` }}>
+                <td style={{ ...tdStyle, textAlign: "left" }}>
+                  <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    <span style={{ width: 3, height: 13, background: t.color, flexShrink: 0 }} />
+                    <b style={{ fontWeight: 500 }}>{t.abbr}</b>
+                  </span>
+                </td>
+                <td style={tdStyle}>{st.w != null ? `${st.w}–${st.l}` : "–"}</td>
+                <td style={tdStyle}>{st.pf ?? "–"}</td>
+                <td style={tdStyle}>{st.pa ?? "–"}</td>
+                <td style={{ ...tdStyle, fontWeight: 700, color: st.streak ? (st.streak[0] === "W" ? C.good : C.bad) : C.mute }}>{st.streak || "–"}</td>
+                <td style={tdStyle}>{st.l10 || "–"}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+
+        <div style={{ fontSize: 9.5, color: C.mute, textAlign: "center", padding: "16px 8px 0", lineHeight: 1.5 }}>
+          {g.done ? "Full box score — team and player lines — is planned for a future update." : "Tip-off details. The box score appears here once the game is played."}
+        </div>
+      </div>
+    </>
   );
 }
 
