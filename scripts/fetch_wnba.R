@@ -17,6 +17,8 @@
 # are computed straight from the box scores so they can't disagree with the
 # scores the app shows. usage_pct uses the standard usage-rate formula.
 #
+# Column names below are the exact ones wehoop returns (verified from a CI run).
+#
 # Run:  Rscript scripts/fetch_wnba.R      (WNBA_SEASON env overrides the year)
 # =============================================================================
 suppressPackageStartupMessages({
@@ -29,17 +31,14 @@ OUT <- "data/csv"; dir.create(OUT, recursive = TRUE, showWarnings = FALSE)
 message("Fetching WNBA season ", SEASON, " ...")
 
 num <- function(x) suppressWarnings(as.numeric(x))
-# first existing column from candidates; else a constant column of the df length
-col <- function(df, cands, default = NA) {
-  hit <- cands[cands %in% names(df)]
-  if (length(hit)) df[[hit[1]]] else rep(default, nrow(df))
-}
 # regular season only, but never let the filter empty the frame
 regular <- function(df) {
   if (!"season_type" %in% names(df)) return(df)
-  r <- filter(df, season_type == 2)
+  r <- dplyr::filter(df, season_type == 2)
   if (nrow(r) > 0) r else df
 }
+# pick a column by name if present, else a constant vector of the right length
+pick <- function(df, name, default = NA) if (name %in% names(df)) df[[name]] else rep(default, nrow(df))
 
 player_box <- load_wnba_player_box(seasons = SEASON)
 sched      <- load_wnba_schedule(seasons = SEASON)
@@ -48,19 +47,14 @@ stopifnot(nrow(player_box) > 0, nrow(sched) > 0)
 
 pb <- regular(player_box)
 sc <- regular(sched)
-pb$dnp      <- col(pb, "did_not_play", FALSE)
-pb$pos_abbr <- col(pb, "athlete_position_abbreviation", "")
-pb$mins     <- num(col(pb, "minutes", 0)); pb$mins[is.na(pb$mins)] <- 0
+message("regular-season rows — player_box: ", nrow(pb), "  schedule: ", nrow(sc),
+        "  distinct teams: ", dplyr::n_distinct(pb$team_id))
 
-# --- one row per team per game, from player_box ----------------------------
+# --- one row per team per game (scores, home/away) from player_box ---------
 tg <- pb |>
-  transmute(game_id, team_id,
-            team_home_away = col(pb, c("home_away", "team_home_away")),
-            team_score = num(col(pb, "team_score")),
-            opp_score  = num(col(pb, "opponent_team_score")),
-            game_date  = col(pb, "game_date")) |>
+  mutate(team_score = num(team_score), opp_score = num(opponent_team_score)) |>
   group_by(game_id, team_id) |>
-  summarise(team_home_away = dplyr::first(team_home_away),
+  summarise(team_home_away = dplyr::first(home_away),
             team_score     = dplyr::first(team_score),
             opp_score      = dplyr::first(opp_score),
             game_date      = dplyr::first(game_date),
@@ -69,11 +63,12 @@ tg <- pb |>
 
 # --- dim_teams: current-season snapshot ------------------------------------
 dim_teams <- pb |>
+  distinct(team_id, team_abbreviation, team_display_name, team_name, team_color) |>
   transmute(team_id,
-            abbreviation      = col(pb, "team_abbreviation"),
-            team_display_name = col(pb, "team_display_name"),
-            team_short_name   = col(pb, c("team_name", "team_short_display_name", "team_location")),
-            color             = col(pb, c("team_color", "team_alternate_color"))) |>
+            abbreviation      = team_abbreviation,
+            team_display_name,
+            team_short_name   = team_name,
+            color             = team_color) |>
   distinct(team_id, .keep_all = TRUE) |>
   arrange(team_display_name)
 write_csv(dim_teams, file.path(OUT, "dim_teams.csv"), na = "")
@@ -87,16 +82,16 @@ message("  fact_team_box      ", nrow(fact_team_box))
 # --- dim_games: from the schedule feed -------------------------------------
 dim_games <- tibble(
   game_id            = sc$game_id,
-  game_date          = as.character(col(sc, c("game_date", "date"))),
-  home_team_id       = col(sc, c("home_id", "home_team_id")),
-  away_team_id       = col(sc, c("away_id", "away_team_id")),
-  home_display_name  = col(sc, "home_display_name"),
-  away_display_name  = col(sc, "away_display_name"),
-  broadcast_name     = col(sc, c("broadcast_name", "broadcast"), ""),
-  venue_address_city = col(sc, "venue_address_city", ""),
-  neutral_site       = col(sc, "neutral_site", FALSE),
-  venue_full_name    = col(sc, "venue_full_name", ""),
-  attendance         = col(sc, "attendance", NA)
+  game_date          = as.character(pick(sc, "game_date")),
+  home_team_id       = pick(sc, "home_id"),
+  away_team_id       = pick(sc, "away_id"),
+  home_display_name  = pick(sc, "home_display_name"),
+  away_display_name  = pick(sc, "away_display_name"),
+  broadcast_name     = pick(sc, "broadcast_name", ""),
+  venue_address_city = pick(sc, "venue_address_city", ""),
+  neutral_site       = pick(sc, "neutral_site", FALSE),
+  venue_full_name    = pick(sc, "venue_full_name", ""),
+  attendance         = pick(sc, "attendance", NA)
 ) |> distinct(game_id, .keep_all = TRUE)
 write_csv(dim_games, file.path(OUT, "dim_games.csv"), na = "")
 message("  dim_games          ", nrow(dim_games))
@@ -128,14 +123,17 @@ message("  fact_standings     ", nrow(fact_standings))
 # --- fact_player_season: aggregated from player box scores -----------------
 # did_not_play == FALSE is the reliable "played" flag (NOT active == TRUE).
 safe   <- function(n, d) if_else(d > 0, n / d, 0)
-played <- filter(pb, dnp == FALSE)
+ssum   <- function(x) sum(num(x), na.rm = TRUE)
+played <- pb |>
+  mutate(mins = num(minutes)) |>
+  mutate(mins = if_else(is.na(mins), 0, mins)) |>
+  filter(did_not_play == FALSE)
 
 primary <- played |>
   count(athlete_id, team_id, name = "gp") |>
   group_by(athlete_id) |> slice_max(gp, n = 1, with_ties = FALSE) |> ungroup() |>
   select(athlete_id, team_id)
 
-ssum <- function(x) sum(num(x), na.rm = TRUE)
 team_tot <- played |>
   group_by(team_id) |>
   summarise(tm_min = sum(mins),
@@ -147,7 +145,7 @@ fact_player_season <- played |>
   group_by(athlete_id) |>
   summarise(
     athlete_display_name          = dplyr::last(athlete_display_name),
-    athlete_position_abbreviation = dplyr::last(pos_abbr),
+    athlete_position_abbreviation = dplyr::last(athlete_position_abbreviation),
     games_played    = n(),
     min_tot = sum(mins),
     pts_tot = ssum(points),
