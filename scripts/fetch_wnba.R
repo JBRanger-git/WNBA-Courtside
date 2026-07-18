@@ -10,14 +10,17 @@
 # news, the shot fingerprint) from the previous app-data.json. See CLAUDE.md:
 # "a blank field beats a wrong one".
 #
-# Standings and per-player season stats are computed straight from the box
-# scores rather than trusting a separate feed, so they can't disagree with the
+# player_box is the spine: it carries team identity, final scores and home/away
+# on every row, so teams / team-box / standings are all derived from it. We do
+# NOT depend on load_wnba_team_box — its bulk data release lags for the current
+# season and comes back empty mid-season. Standings and per-player season stats
+# are computed straight from the box scores so they can't disagree with the
 # scores the app shows. usage_pct uses the standard usage-rate formula.
 #
 # Run:  Rscript scripts/fetch_wnba.R      (WNBA_SEASON env overrides the year)
 # =============================================================================
 suppressPackageStartupMessages({
-  library(wehoop); library(dplyr); library(tidyr); library(readr)
+  library(wehoop); library(dplyr); library(readr)
 })
 options(dplyr.summarise.inform = FALSE)
 
@@ -25,76 +28,83 @@ SEASON <- as.integer(Sys.getenv("WNBA_SEASON", unset = format(Sys.Date(), "%Y"))
 OUT <- "data/csv"; dir.create(OUT, recursive = TRUE, showWarnings = FALSE)
 message("Fetching WNBA season ", SEASON, " ...")
 
-# first existing column name from a list of candidates; else a constant column
+num <- function(x) suppressWarnings(as.numeric(x))
+# first existing column from candidates; else a constant column of the df length
 col <- function(df, cands, default = NA) {
   hit <- cands[cands %in% names(df)]
   if (length(hit)) df[[hit[1]]] else rep(default, nrow(df))
 }
-regular <- function(df) if ("season_type" %in% names(df)) filter(df, season_type == 2) else df
+# regular season only, but never let the filter empty the frame
+regular <- function(df) {
+  if (!"season_type" %in% names(df)) return(df)
+  r <- filter(df, season_type == 2)
+  if (nrow(r) > 0) r else df
+}
 
-team_box   <- load_wnba_team_box(seasons = SEASON)   |> regular()
-player_box <- load_wnba_player_box(seasons = SEASON) |> regular()
-sched      <- load_wnba_schedule(seasons = SEASON)   |> regular()
+player_box <- load_wnba_player_box(seasons = SEASON)
+sched      <- load_wnba_schedule(seasons = SEASON)
+message("loaded rows — player_box: ", nrow(player_box), "  schedule: ", nrow(sched))
+stopifnot(nrow(player_box) > 0, nrow(sched) > 0)
 
-# Column names vary across wehoop versions; log them so mismatches are obvious.
-message("team_box cols: ",   paste(names(team_box), collapse = ", "))
-message("schedule cols: ",   paste(names(sched), collapse = ", "))
-message("player_box cols: ", paste(names(player_box), collapse = ", "))
-stopifnot(nrow(team_box) > 0, nrow(player_box) > 0, nrow(sched) > 0)
+pb <- regular(player_box)
+sc <- regular(sched)
+pb$dnp      <- col(pb, "did_not_play", FALSE)
+pb$pos_abbr <- col(pb, "athlete_position_abbreviation", "")
+pb$mins     <- num(col(pb, "minutes", 0)); pb$mins[is.na(pb$mins)] <- 0
+
+# --- one row per team per game, from player_box ----------------------------
+tg <- pb |>
+  transmute(game_id, team_id,
+            team_home_away = col(pb, c("home_away", "team_home_away")),
+            team_score = num(col(pb, "team_score")),
+            opp_score  = num(col(pb, "opponent_team_score")),
+            game_date  = col(pb, "game_date")) |>
+  group_by(game_id, team_id) |>
+  summarise(team_home_away = dplyr::first(team_home_away),
+            team_score     = dplyr::first(team_score),
+            opp_score      = dplyr::first(opp_score),
+            game_date      = dplyr::first(game_date),
+            .groups = "drop") |>
+  filter(!is.na(team_score), !is.na(opp_score))
 
 # --- dim_teams: current-season snapshot ------------------------------------
-dim_teams <- team_box |>
+dim_teams <- pb |>
   transmute(team_id,
-            abbreviation      = col(team_box, "team_abbreviation"),
-            team_display_name = col(team_box, "team_display_name"),
-            team_short_name   = col(team_box, c("team_name", "team_short_display_name", "team_location")),
-            color             = col(team_box, c("team_color", "team_alternate_color"))) |>
+            abbreviation      = col(pb, "team_abbreviation"),
+            team_display_name = col(pb, "team_display_name"),
+            team_short_name   = col(pb, c("team_name", "team_short_display_name", "team_location")),
+            color             = col(pb, c("team_color", "team_alternate_color"))) |>
   distinct(team_id, .keep_all = TRUE) |>
   arrange(team_display_name)
 write_csv(dim_teams, file.path(OUT, "dim_teams.csv"), na = "")
 message("  dim_teams          ", nrow(dim_teams))
 
 # --- fact_team_box: the source of truth for scores & completion ------------
-fact_team_box <- team_box |>
-  transmute(game_id,
-            team_home_away = col(team_box, "team_home_away"),
-            team_score     = col(team_box, c("team_score", "team_winner_score")))
+fact_team_box <- tg |> transmute(game_id, team_home_away, team_score)
 write_csv(fact_team_box, file.path(OUT, "fact_team_box.csv"), na = "")
 message("  fact_team_box      ", nrow(fact_team_box))
 
 # --- dim_games: from the schedule feed -------------------------------------
 dim_games <- tibble(
-  game_id            = sched$game_id,
-  game_date          = as.character(col(sched, c("game_date", "date"))),
-  home_team_id       = col(sched, c("home_id", "home_team_id")),
-  away_team_id       = col(sched, c("away_id", "away_team_id")),
-  home_display_name  = col(sched, "home_display_name"),
-  away_display_name  = col(sched, "away_display_name"),
-  broadcast_name     = col(sched, c("broadcast_name", "broadcast"), ""),
-  venue_address_city = col(sched, "venue_address_city", ""),
-  neutral_site       = col(sched, "neutral_site", FALSE),
-  venue_full_name    = col(sched, "venue_full_name", ""),
-  attendance         = col(sched, "attendance", NA)
-)
+  game_id            = sc$game_id,
+  game_date          = as.character(col(sc, c("game_date", "date"))),
+  home_team_id       = col(sc, c("home_id", "home_team_id")),
+  away_team_id       = col(sc, c("away_id", "away_team_id")),
+  home_display_name  = col(sc, "home_display_name"),
+  away_display_name  = col(sc, "away_display_name"),
+  broadcast_name     = col(sc, c("broadcast_name", "broadcast"), ""),
+  venue_address_city = col(sc, "venue_address_city", ""),
+  neutral_site       = col(sc, "neutral_site", FALSE),
+  venue_full_name    = col(sc, "venue_full_name", ""),
+  attendance         = col(sc, "attendance", NA)
+) |> distinct(game_id, .keep_all = TRUE)
 write_csv(dim_games, file.path(OUT, "dim_games.csv"), na = "")
 message("  dim_games          ", nrow(dim_games))
 
 # --- fact_standings: computed from the box scores --------------------------
-# Opponent score via a self-join (robust to whether opponent_team_score exists).
-ha  <- team_box |> transmute(game_id,
-                             team_home_away = col(team_box, "team_home_away"),
-                             team_id,
-                             team_score = col(team_box, "team_score"),
-                             game_date  = col(team_box, "game_date"))
-opp <- ha |> transmute(game_id,
-                       team_home_away = if_else(team_home_away == "home", "away", "home"),
-                       opp_score = team_score)
-g <- ha |>
-  left_join(opp, by = c("game_id", "team_home_away")) |>
-  filter(!is.na(opp_score)) |>
+g <- tg |>
   mutate(win = team_score > opp_score, home = team_home_away == "home") |>
   arrange(team_id, game_date)
-
 fact_standings <- g |>
   group_by(team_id) |>
   summarise(
@@ -117,42 +127,38 @@ message("  fact_standings     ", nrow(fact_standings))
 
 # --- fact_player_season: aggregated from player box scores -----------------
 # did_not_play == FALSE is the reliable "played" flag (NOT active == TRUE).
-safe <- function(n, d) if_else(d > 0, n / d, 0)
-player_box$dnp      <- col(player_box, "did_not_play", FALSE)
-player_box$pos_abbr <- col(player_box, "athlete_position_abbreviation", "")
-played <- filter(player_box, dnp == FALSE)
+safe   <- function(n, d) if_else(d > 0, n / d, 0)
+played <- filter(pb, dnp == FALSE)
 
 primary <- played |>
   count(athlete_id, team_id, name = "gp") |>
   group_by(athlete_id) |> slice_max(gp, n = 1, with_ties = FALSE) |> ungroup() |>
   select(athlete_id, team_id)
 
+ssum <- function(x) sum(num(x), na.rm = TRUE)
 team_tot <- played |>
   group_by(team_id) |>
-  summarise(tm_min = sum(minutes, na.rm = TRUE),
-            tm_fga = sum(field_goals_attempted, na.rm = TRUE),
-            tm_fta = sum(free_throws_attempted, na.rm = TRUE),
-            tm_tov = sum(turnovers, na.rm = TRUE), .groups = "drop")
+  summarise(tm_min = sum(mins),
+            tm_fga = ssum(field_goals_attempted),
+            tm_fta = ssum(free_throws_attempted),
+            tm_tov = ssum(turnovers), .groups = "drop")
 
 fact_player_season <- played |>
   group_by(athlete_id) |>
   summarise(
-    athlete_display_name = last(athlete_display_name),
-    athlete_position_abbreviation = last(pos_abbr),
+    athlete_display_name          = dplyr::last(athlete_display_name),
+    athlete_position_abbreviation = dplyr::last(pos_abbr),
     games_played    = n(),
-    min_tot = sum(minutes, na.rm = TRUE),
-    pts_tot = sum(points, na.rm = TRUE),
-    reb_tot = sum(rebounds, na.rm = TRUE),
-    ast_tot = sum(assists, na.rm = TRUE),
-    steals_total    = sum(steals, na.rm = TRUE),
-    blocks_total    = sum(blocks, na.rm = TRUE),
-    turnovers_total = sum(turnovers, na.rm = TRUE),
-    fgm = sum(field_goals_made, na.rm = TRUE),
-    fga = sum(field_goals_attempted, na.rm = TRUE),
-    tpm = sum(three_point_field_goals_made, na.rm = TRUE),
-    tpa = sum(three_point_field_goals_attempted, na.rm = TRUE),
-    ftm = sum(free_throws_made, na.rm = TRUE),
-    fta = sum(free_throws_attempted, na.rm = TRUE),
+    min_tot = sum(mins),
+    pts_tot = ssum(points),
+    reb_tot = ssum(rebounds),
+    ast_tot = ssum(assists),
+    steals_total    = ssum(steals),
+    blocks_total    = ssum(blocks),
+    turnovers_total = ssum(turnovers),
+    fgm = ssum(field_goals_made),                fga = ssum(field_goals_attempted),
+    tpm = ssum(three_point_field_goals_made),    tpa = ssum(three_point_field_goals_attempted),
+    ftm = ssum(free_throws_made),                fta = ssum(free_throws_attempted),
     .groups = "drop"
   ) |>
   left_join(primary,  by = "athlete_id") |>
