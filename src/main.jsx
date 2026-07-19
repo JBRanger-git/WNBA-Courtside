@@ -1,20 +1,22 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
 import { SplashScreen } from "@capacitor/splash-screen";
-import { loadRemote } from "./data/loadRemote";
+import { applyCache, refreshFromNetwork } from "./data/loadRemote";
 import "./index.css";
 
-// Fetch the freshest data (cache ▸ network ▸ bundled, ≤3s) BEFORE importing
-// App, so App.jsx's module-level tables derive from it. The native splash
-// (launchAutoHide:false) covers this brief wait; offline it resolves instantly
-// against the bundled copy. See docs/going-live-fetch-at-runtime.md.
-(async () => {
-  await loadRemote();
-  const { default: App } = await import("./App.jsx");
+// Phase 2: no network wait. Seed the freshest cached snapshot synchronously
+// (applyCache) before App's tables compute, render immediately, then refresh
+// from the network in the background — newer data swaps in live via the
+// dataSource subscribers. Offline, the bundled copy renders instantly.
+// See docs/going-live-fetch-at-runtime.md.
+applyCache();
+
+import("./App.jsx").then(({ default: App }) => {
   createRoot(document.getElementById("root")).render(
     <React.StrictMode><App /></React.StrictMode>
   );
-  // Hide the native splash once React has painted. The in-app <Splash> then
-  // carries the brand for a beat and fades, so the handoff looks continuous.
+  // Hide the native splash once React has painted; the in-app <Splash> carries
+  // the brand for a beat and fades, so the handoff looks continuous.
   requestAnimationFrame(() => SplashScreen.hide().catch(() => {}));
-})();
+  refreshFromNetwork();
+});
