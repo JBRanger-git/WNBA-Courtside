@@ -1,6 +1,8 @@
-// Best-effort fresh-data loader: cache ▸ network ▸ bundled. Always resolves,
-// never throws, and never blocks longer than TIMEOUT. Runs once at startup
-// (main.jsx) before App.jsx reads the data. See docs/going-live-fetch-at-runtime.md.
+// Fresh-data loader. Two halves so the app never waits on the network:
+//   applyCache()        — synchronous, seeds the last good snapshot before paint
+//   refreshFromNetwork() — async, best-effort, swaps in the latest and re-renders
+// Both are safe to call unconditionally; neither throws. Offline, the app keeps
+// its cached-or-bundled data. See docs/going-live-fetch-at-runtime.md.
 import { setData } from "./dataSource";
 
 // Public, CORS-enabled URL of the snapshot the daily Action publishes.
@@ -12,18 +14,22 @@ const REMOTE_URL =
 const CACHE_KEY = "courtside:data:v1";
 const TIMEOUT = 3000;
 
-// Only trust a payload that looks like our snapshot, so a stray HTML error
-// page or a truncated response can never replace good data.
+// Only trust a payload that looks like our snapshot, so a stray HTML error page
+// or a truncated response can never replace good data.
 const looksValid = (d) => d && d.meta && Array.isArray(d.T) && Array.isArray(d.G);
 
-export async function loadRemote() {
-  // 1) Instant: last good cached copy (usually newer than the bundled one).
+// Synchronous: apply the last good cached copy (usually newer than the bundled
+// one) before first paint, so warm users see the freshest data with no wait.
+export function applyCache() {
   try {
     const cached = JSON.parse(localStorage.getItem(CACHE_KEY));
     if (looksValid(cached)) setData(cached);
   } catch { /* no/broken cache — keep bundled */ }
+}
 
-  // 2) Refresh from the network, best-effort, time-boxed.
+// Async, time-boxed: fetch the latest snapshot and swap it in live. On any
+// failure the app keeps whatever it already has.
+export async function refreshFromNetwork() {
   if (!REMOTE_URL) return;
   try {
     const ctrl = new AbortController();
@@ -36,5 +42,5 @@ export async function loadRemote() {
       setData(data);
       try { localStorage.setItem(CACHE_KEY, JSON.stringify(data)); } catch {}
     }
-  } catch { /* offline / slow / bad response → keep cached-or-bundled */ }
+  } catch { /* offline / slow / bad response → keep current */ }
 }
