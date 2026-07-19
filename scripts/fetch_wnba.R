@@ -50,6 +50,49 @@ regular <- function(df) {
 }
 # pick a column by name if present, else a constant vector of the right length
 pick <- function(df, name, default = NA) if (name %in% names(df)) df[[name]] else rep(default, nrow(df))
+# first present column among several candidate names (ESPN schemas drift)
+pick_any <- function(df, cands, default = NA) {
+  for (n in cands) if (n %in% names(df)) return(df[[n]])
+  rep(default, nrow(df))
+}
+
+# --- §8 live top-up --------------------------------------------------------
+# The bulk player_box release lags the schedule by 1-3 days, so the newest
+# finals are missing. Pull the last few days of completed games straight from
+# ESPN's live scoreboard and return team-per-game score rows for any the bulk
+# feed doesn't have yet. FULLY DEFENSIVE: any error (network, schema drift,
+# missing endpoint) logs and returns an empty frame, so the pipeline falls back
+# to exactly today's bulk-only behaviour — this can never break the daily run.
+recent_finals <- function(have_ids, days = 5) {
+  tryCatch({
+    rows <- list()
+    for (i in seq_len(days)) {
+      d  <- format(Sys.Date() - i, "%Y%m%d")
+      sb <- tryCatch(espn_wnba_scoreboard(season = d), error = function(e) NULL)
+      if (is.null(sb) || !nrow(sb)) next
+      gid <- as.character(pick_any(sb, c("game_id", "id")))
+      st  <- toupper(as.character(pick_any(sb, c("status_name", "status_type_name",
+                                                 "status_type", "type_name"), "")))
+      hid <- as.character(pick_any(sb, c("home_team_id", "home_id")))
+      aid <- as.character(pick_any(sb, c("away_team_id", "away_id")))
+      hs  <- num(pick_any(sb, c("home_team_score", "home_score")))
+      as_ <- num(pick_any(sb, c("away_team_score", "away_score")))
+      gd  <- as.character(pick_any(sb, c("game_date", "date")))
+      keep <- grepl("FINAL", st) & !is.na(hs) & !is.na(as_) &
+              !is.na(hid) & !is.na(aid) & !(gid %in% have_ids)
+      if (any(keep)) rows[[d]] <- tibble(
+        game_id        = rep(gid[keep], 2L),
+        team_id        = c(hid[keep], aid[keep]),
+        team_home_away = c(rep("home", sum(keep)), rep("away", sum(keep))),
+        team_score     = c(hs[keep],  as_[keep]),
+        opp_score      = c(as_[keep], hs[keep]),
+        game_date      = rep(gd[keep], 2L)
+      )
+    }
+    if (length(rows)) dplyr::distinct(dplyr::bind_rows(rows), game_id, team_id, .keep_all = TRUE)
+    else tibble()
+  }, error = function(e) { message("  live top-up skipped: ", conditionMessage(e)); tibble() })
+}
 
 player_box <- chr_ids(load_wnba_player_box(seasons = SEASON))
 sched      <- chr_ids(load_wnba_schedule(seasons = SEASON))
@@ -77,6 +120,18 @@ tg <- pb |>
             game_date      = dplyr::first(game_date),
             .groups = "drop") |>
   filter(!is.na(team_score), !is.na(opp_score))
+
+# Top up `tg` with recent finals the bulk feed hasn't published yet, so scores,
+# completion and standings are current-to-yesterday. Defensive: empty on any
+# failure, leaving `tg` exactly as the bulk feed produced it.
+topup <- recent_finals(unique(tg$game_id))
+if (nrow(topup) > 0) {
+  tg <- dplyr::bind_rows(tg, topup) |>
+    dplyr::distinct(game_id, team_id, .keep_all = TRUE)
+  message("  live top-up        +", dplyr::n_distinct(topup$game_id), " recent final(s)")
+} else {
+  message("  live top-up        no new finals (bulk feed is current)")
+}
 
 # --- dim_teams: current-season snapshot ------------------------------------
 dim_teams <- pb |>
