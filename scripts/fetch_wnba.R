@@ -212,6 +212,32 @@ played <- pb |>
   mutate(mins = if_else(is.na(mins), 0, mins)) |>
   filter(did_not_play == FALSE)
 
+# --- per-game box detail: team totals + top scorers (for the game page) -------
+# Derived from the same player_box spine as everything else, so it can't
+# disagree with the score. build_data.py attaches these to completed games only.
+game_box <- played |>
+  group_by(game_id, team_id) |>
+  summarise(
+    pts = ssum(points),  reb = ssum(rebounds), ast = ssum(assists),
+    stl = ssum(steals),  blk = ssum(blocks),   tov = ssum(turnovers),
+    fgm = ssum(field_goals_made),             fga = ssum(field_goals_attempted),
+    tpm = ssum(three_point_field_goals_made), tpa = ssum(three_point_field_goals_attempted),
+    ftm = ssum(free_throws_made),             fta = ssum(free_throws_attempted),
+    .groups = "drop"
+  )
+write_csv(game_box, file.path(OUT, "fact_game_box.csv"), na = "")
+message("  fact_game_box      ", nrow(game_box))
+
+game_top <- played |>
+  transmute(game_id, team_id, athlete_id,
+            name = athlete_display_name,
+            pts = num(points), reb = num(rebounds), ast = num(assists)) |>
+  group_by(game_id, team_id) |>
+  slice_max(pts, n = 3, with_ties = FALSE) |>
+  ungroup()
+write_csv(game_top, file.path(OUT, "fact_game_top.csv"), na = "")
+message("  fact_game_top      ", nrow(game_top))
+
 primary <- played |>
   count(athlete_id, team_id, name = "gp") |>
   group_by(athlete_id) |> slice_max(gp, n = 1, with_ties = FALSE) |> ungroup() |>
