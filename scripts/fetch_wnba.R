@@ -125,13 +125,24 @@ tg <- pb |>
 # completion and standings are current-to-yesterday. Defensive: empty on any
 # failure, leaving `tg` exactly as the bulk feed produced it.
 topup <- recent_finals(unique(tg$game_id))
-if (nrow(topup) > 0) {
-  tg <- dplyr::bind_rows(tg, topup) |>
-    dplyr::distinct(game_id, team_id, .keep_all = TRUE)
-  message("  live top-up        +", dplyr::n_distinct(topup$game_id), " recent final(s)")
-} else {
-  message("  live top-up        no new finals (bulk feed is current)")
-}
+tg <- tryCatch({
+  if (nrow(topup) > 0) {
+    # bind_rows needs matching column types: tg$game_date is <date> from the
+    # bulk feed, topup's is <character> — normalise both to character (ISO
+    # strings still sort chronologically for the standings arrange downstream).
+    merged <- dplyr::bind_rows(
+      dplyr::mutate(tg, game_date = as.character(game_date)),
+      dplyr::mutate(topup, game_date = as.character(game_date))
+    ) |> dplyr::distinct(game_id, team_id, .keep_all = TRUE)
+    message("  live top-up        +", dplyr::n_distinct(topup$game_id), " recent final(s)")
+    merged
+  } else {
+    message("  live top-up        no new finals (bulk feed is current)")
+    tg
+  }
+}, error = function(e) {
+  message("  live top-up skipped (merge): ", conditionMessage(e)); tg
+})
 
 # --- dim_teams: current-season snapshot ------------------------------------
 dim_teams <- pb |>
