@@ -238,10 +238,33 @@ def build(csv_dir: Path, out_dir: Path):
         n = len(SHOTS["P"]) if SHOTS and SHOTS.get("P") else 0
         print(f"  shots          (no fact_pbp.csv — preserved {n} fingerprints from prior build)")
 
+    # --- per-game box detail (completed games only): team totals + top scorers.
+    # Compact, keyed by game_id with home/away. Absent for very recent live
+    # top-up games that have no player box yet — the app shows the light view.
+    def _opt(name):
+        p = csv_dir/name
+        return read(p) if p.exists() else []
+    BOXCOLS = ("pts","reb","ast","stl","blk","tov","fgm","fga","tpm","tpa","ftm","fta")
+    box_by = defaultdict(dict)                        # game_id -> team_id -> [stats]
+    for r in _opt("fact_game_box.csv"):
+        box_by[r["game_id"]][r["team_id"]] = [int(num(r[k])) for k in BOXCOLS]
+    top_by = defaultdict(lambda: defaultdict(list))  # game_id -> team_id -> [[id,name,pts,reb,ast]]
+    for r in _opt("fact_game_top.csv"):
+        top_by[r["game_id"]][r["team_id"]].append(
+            [r["athlete_id"], r["name"], int(num(r["pts"])), int(num(r["reb"])), int(num(r["ast"]))])
+    GB = {}
+    for g in games_raw:
+        gid, hid, aid = g["game_id"], g["home_team_id"], g["away_team_id"]
+        b = box_by.get(gid)
+        if not b or hid not in b or aid not in b: continue
+        GB[gid] = {"box": {"home": b[hid], "away": b[aid]},
+                   "top": {"home": top_by[gid].get(hid, []), "away": top_by[gid].get(aid, [])}}
+    print(f"  game box       {len(GB)} games with box detail")
+
     payload = {"meta":{"totalGames":len(G), "completedGames":completed,
                        "leagueAvgPpg":round(sum(int(r["team_score"]) for r in tbox)/len(tbox),1),
                        "lastGame":max((r[1] for r in G if r[9]), default=None)},
-               "T":T,"S":S,"P":P,"G":G,"N":N,"BIO":BIO,"TEAM_BIO":TEAM_BIO,"SHOTS":SHOTS}
+               "T":T,"S":S,"P":P,"G":G,"N":N,"BIO":BIO,"TEAM_BIO":TEAM_BIO,"SHOTS":SHOTS,"GB":GB}
     dst = out_dir/"app-data.json"
     dst.write_text(json.dumps(payload, separators=(",",":")))
     kb = dst.stat().st_size/1024

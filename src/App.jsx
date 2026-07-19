@@ -29,12 +29,13 @@ import { Home, Shield, Users, CalendarDays, ChevronLeft, ChevronRight, Search, M
 // fresher snapshot arriving mid-session swaps the whole app's data with one
 // re-render. Components read these module bindings at render time, so
 // reassigning them here is all that's needed — no prop/context threading.
-let RAW, BIO, TEAM_BIO, SHOTS, TEAMS, TEAM, STANDINGS, PLAYERS, GAMES, GAME, NEWS;
+let RAW, BIO, TEAM_BIO, SHOTS, GAMEBOX, TEAMS, TEAM, STANDINGS, PLAYERS, GAMES, GAME, NEWS;
 function computeTables() {
   RAW = getData();
   BIO = RAW.BIO || {};
   TEAM_BIO = RAW.TEAM_BIO || {};
   SHOTS = RAW.SHOTS || { LG: null, P: {} };   // null when fact_pbp is absent
+  GAMEBOX = RAW.GB || {};                      // per-game box detail, keyed by game id (completed games)
   TEAMS = RAW.T.map(([id, abbr, name, shortName, color, conf]) => ({ id, abbr, name, shortName, color, conf, bio: TEAM_BIO[id] || {} }));
   TEAM = Object.fromEntries(TEAMS.map(t => [t.id, t]));
   STANDINGS = RAW.S.map(([id, w, l, pct, pf, pa, diff, streak, l10, home, road]) =>
@@ -171,7 +172,7 @@ export default function CourtsideApp() {
         stack.type === "team"
           ? <TeamDetail team={TEAM[stack.id]} onBack={back} openPlayer={(id) => open("player", id)} openGame={(id) => open("game", id)} />
           : stack.type === "game"
-            ? <GameDetail game={GAME[stack.id]} onBack={back} openTeam={(id) => open("team", id)} />
+            ? <GameDetail game={GAME[stack.id]} onBack={back} openTeam={(id) => open("team", id)} openPlayer={(id) => open("player", id)} />
             : <PlayerDetail player={PLAYERS.find(p => p.id === stack.id)} onBack={back} openTeam={(id) => open("team", id)} />
       ) : (
         <>
@@ -591,11 +592,11 @@ function DetailHead({ color, onBack, eyebrow, title, right, badge }) {
 }
 
 // ============================================================================
-// Game page. The bundle carries final score, teams, venue and broadcast per
-// game — not a full box score (that needs per-game team/player box rows added
-// to build_data.py and a data regen). So this shows the result plus each club's
-// season form as context, and links through to both team pages.
-function GameDetail({ game: g, onBack, openTeam }) {
+// Game page. Final score, each club's season form, and — for completed games
+// whose box detail is in the bundle (GAMEBOX) — a team box comparison and each
+// side's top performers. Recent live-topped games have no box yet and fall back
+// to the light view. Everything links through to team and player pages.
+function GameDetail({ game: g, onBack, openTeam, openPlayer }) {
   if (!g || !g.home || !g.away) return null;
   const awaySt = STANDINGS.find(s => s.id === g.awayId) || {};
   const homeSt = STANDINGS.find(s => s.id === g.homeId) || {};
@@ -603,6 +604,7 @@ function GameDetail({ game: g, onBack, openTeam }) {
   const homeWin = g.done && g.hs > g.as;
   const dateLabel = new Date(g.date + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric" });
   const winner = awayWin ? g.away : g.home;
+  const gb = GAMEBOX[g.id];   // per-game box detail if present in the snapshot
 
   const TeamLine = ({ team, st, score, win }) => (
     <button onClick={() => openTeam(team.id)} style={{ width: "100%", display: "flex", alignItems: "center", gap: 11, padding: "13px 4px", border: "none", borderBottom: `1px solid ${C.border}`, background: "none", cursor: "pointer", textAlign: "left" }}>
@@ -631,6 +633,63 @@ function GameDetail({ game: g, onBack, openTeam }) {
           {g.net && <span>{g.net.replace("WNBA ", "")}</span>}
         </div>
 
+        {gb && (() => {
+          const A = gb.box.away, H = gb.box.home;   // [pts,reb,ast,stl,blk,tov,fgm,fga,tpm,tpa,ftm,fta]
+          const P = (m, a) => a ? Math.round(m / a * 100) : 0;
+          // [label, awayText, homeText, awayRank, homeRank] — higher rank is bolded
+          // (turnovers pass rank swapped so the LOWER count is the one highlighted).
+          const rows = [
+            ["FG",  `${A[6]}-${A[7]} (${P(A[6],A[7])}%)`,   `${H[6]}-${H[7]} (${P(H[6],H[7])}%)`,   P(A[6],A[7]),  P(H[6],H[7])],
+            ["3PT", `${A[8]}-${A[9]} (${P(A[8],A[9])}%)`,   `${H[8]}-${H[9]} (${P(H[8],H[9])}%)`,   P(A[8],A[9]),  P(H[8],H[9])],
+            ["FT",  `${A[10]}-${A[11]} (${P(A[10],A[11])}%)`, `${H[10]}-${H[11]} (${P(H[10],H[11])}%)`, P(A[10],A[11]), P(H[10],H[11])],
+            ["REB", A[1], H[1], A[1], H[1]],
+            ["AST", A[2], H[2], A[2], H[2]],
+            ["STL", A[3], H[3], A[3], H[3]],
+            ["BLK", A[4], H[4], A[4], H[4]],
+            ["TO",  A[5], H[5], H[5], A[5]],
+          ];
+          return (
+            <>
+              <SectionHead>Box score</SectionHead>
+              <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                <thead><tr>
+                  <th style={{ ...thStyle, textAlign: "left" }}>{g.away.abbr}</th>
+                  <th style={{ ...thStyle, textAlign: "center" }} />
+                  <th style={thStyle}>{g.home.abbr}</th>
+                </tr></thead>
+                <tbody>
+                  {rows.map(([k, av, hv, an, hn], i) => (
+                    <tr key={k} style={{ background: i % 2 ? C.stripe : "transparent", borderBottom: `1px solid ${C.border}` }}>
+                      <td style={{ ...tdStyle, textAlign: "left", fontWeight: an > hn ? 700 : 400, color: an > hn ? C.text : C.sec }}>{av}</td>
+                      <td style={{ ...tdStyle, textAlign: "center", fontSize: 8.5, letterSpacing: .8, textTransform: "uppercase", color: C.mute, fontWeight: 700 }}>{k}</td>
+                      <td style={{ ...tdStyle, fontWeight: hn > an ? 700 : 400, color: hn > an ? C.text : C.sec }}>{hv}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+
+              <SectionHead>Top performers</SectionHead>
+              {[[g.away, gb.top.away], [g.home, gb.top.home]].map(([t, list]) => (
+                <div key={t.id} style={{ paddingTop: 4 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 0 2px" }}>
+                    <span style={{ width: 3, height: 12, background: t.color, flexShrink: 0 }} />
+                    <span style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: .6, textTransform: "uppercase", color: C.sec }}>{t.name}</span>
+                  </div>
+                  {(list || []).map(([pid, name, pts, reb, ast]) => {
+                    const match = PLAYERS.find(p => String(p.id) === String(pid));
+                    return (
+                      <button key={pid} disabled={!match} onClick={() => match && openPlayer(match.id)} style={{ width: "100%", display: "flex", alignItems: "center", gap: 8, padding: "7px 0", border: "none", borderBottom: `1px solid ${C.border}`, background: "none", textAlign: "left", cursor: match ? "pointer" : "default" }}>
+                        <span style={{ flex: 1, fontSize: 12.5, color: C.text }}>{name}</span>
+                        <span style={{ fontFamily: DISPLAY, fontSize: 12.5, ...agate, color: C.sec }}><b style={{ color: C.text }}>{pts}</b> pts · {reb} reb · {ast} ast</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              ))}
+            </>
+          );
+        })()}
+
         <SectionHead>Season form</SectionHead>
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead><tr>
@@ -657,9 +716,12 @@ function GameDetail({ game: g, onBack, openTeam }) {
           </tbody>
         </table>
 
-        <div style={{ fontSize: 9.5, color: C.mute, textAlign: "center", padding: "16px 8px 0", lineHeight: 1.5 }}>
-          {g.done ? "Full box score — team and player lines — is planned for a future update." : "Tip-off details. The box score appears here once the game is played."}
-        </div>
+        {(!g.done || !gb) && (
+          <div style={{ fontSize: 9.5, color: C.mute, textAlign: "center", padding: "16px 8px 0", lineHeight: 1.5 }}>
+            {!g.done ? "Tip-off details. The box score appears here once the game is played."
+                     : "Team and player box detail appears here once this game's box score is published."}
+          </div>
+        )}
       </div>
     </>
   );
