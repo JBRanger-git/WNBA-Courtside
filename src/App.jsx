@@ -49,15 +49,43 @@ function computeTables() {
 }
 computeTables();
 
-// ---- theme (from wnba-chalk-court-theme.json) --------------------------------
-const C = {
+// ---- theme -------------------------------------------------------------------
+// LIGHT = "Chalk Court" (the agate newspaper look). DARK = "Report Palette", a
+// broadcast-dark scheme. Same token keys so every screen themes for free; onRule
+// is the text colour that sits on a rule-coloured (selected) chip.
+const LIGHT = {
   page: "#F4F2EC", card: "#ECEAE2", visual: "#FFFFFF", stripe: "#F7F6F1",
   border: "#DEDBD2", rule: "#15151C", text: "#15151C", sec: "#5B6472",
   mute: "#8A8F98", accent: "#FE5000", good: "#1E8F5E", bad: "#C23934", blue: "#3B6FC4",
+  onRule: "#FFFFFF",
+};
+const DARK = {
+  page: "#15151C", card: "#1F1F29", visual: "#1F1F29", stripe: "#2A2A36",
+  border: "#33333F", rule: "#F4F2EC", text: "#F4F2EC", sec: "#8B93A5",
+  mute: "#6E7683", accent: "#FE5000", good: "#2FA872", bad: "#D9534F", blue: "#4C8DE8",
+  onRule: "#15151C",
 };
 const DISPLAY = "'Oswald', sans-serif";
 const BODY = "'Roboto', system-ui, sans-serif";
 const agate = { fontVariantNumeric: "tabular-nums", fontFeatureSettings: "'tnum'" };
+
+// C, thStyle and tdStyle are reassigned by applyTheme() so switching mode
+// re-themes the whole app on the next render (everything reads them at render time).
+const THEME_KEY = "courtside:theme";
+let C = LIGHT, thStyle, tdStyle;
+function applyTheme(mode) {
+  C = mode === "dark" ? DARK : LIGHT;
+  thStyle = { fontSize: 8.5, letterSpacing: .8, textTransform: "uppercase", color: C.sec, fontWeight: 700, padding: "5px 0 4px", borderBottom: `1px solid ${C.border}`, textAlign: "right" };
+  tdStyle = { fontSize: 11.5, padding: "6px 0", textAlign: "right", color: C.text, ...agate };
+  if (typeof document !== "undefined") {
+    document.body.style.background = C.page;
+    document.documentElement.style.colorScheme = mode === "dark" ? "dark" : "light";
+  }
+}
+function initialTheme() {
+  try { return localStorage.getItem(THEME_KEY) === "dark" ? "dark" : "light"; } catch { return "light"; }
+}
+applyTheme(initialTheme());
 
 // ---- ASSET LAYER ------------------------------------------------------------
 // Team crests and player faces are three separate rights (trademark on the mark,
@@ -138,6 +166,8 @@ export default function CourtsideApp() {
   const [tab, setTab] = useState("home");
   const [stack, setStack] = useState(null); // {type:'team'|'player', id}
   const [search, setSearch] = useState(false);
+  const [theme, setTheme] = useState(initialTheme());
+  const chooseTheme = (m) => { applyTheme(m); try { localStorage.setItem(THEME_KEY, m); } catch {} setTheme(m); };
   const [ready, setReady] = useState(false); // drives the splash fade-out
 
   // Live data refresh (Phase 2): when a fresher snapshot arrives from the
@@ -180,7 +210,7 @@ export default function CourtsideApp() {
           {tab === "teams" && <TeamsScreen open={open} onSearch={() => setSearch(true)} />}
           {tab === "players" && <PlayersScreen open={open} />}
           {tab === "schedule" && <ScheduleScreen open={open} />}
-          {tab === "more" && <MoreScreen />}
+          {tab === "more" && <MoreScreen theme={theme} setTheme={chooseTheme} />}
         </>
       )}
 
@@ -336,8 +366,7 @@ function SectionHead({ children, action }) {
     </div>
   );
 }
-const thStyle = { fontSize: 8.5, letterSpacing: .8, textTransform: "uppercase", color: C.sec, fontWeight: 700, padding: "5px 0 4px", borderBottom: `1px solid ${C.border}`, textAlign: "right" };
-const tdStyle = { fontSize: 11.5, padding: "6px 0", textAlign: "right", color: C.text, ...agate };
+// thStyle / tdStyle are defined by applyTheme() above so they re-theme on mode switch.
 
 // ============================================================================
 function HomeScreen({ open, onSearch }) {
@@ -360,7 +389,7 @@ function HomeScreen({ open, onSearch }) {
           {["All", "East", "West"].map(v => (
             <button key={v} onClick={() => setConf(v)} style={{
               flex: 1, border: "none", padding: "6px 0", fontSize: 11, fontWeight: 700, letterSpacing: .8, textTransform: "uppercase",
-              background: conf === v ? C.rule : C.visual, color: conf === v ? "#fff" : C.sec, cursor: "pointer", fontFamily: BODY,
+              background: conf === v ? C.rule : C.visual, color: conf === v ? C.onRule : C.sec, cursor: "pointer", fontFamily: BODY,
             }}>{v}</button>
           ))}
         </div>
@@ -431,7 +460,7 @@ function TeamsScreen({ open, onSearch }) {
       <div className="noscroll" style={{ flex: 1, overflowY: "auto", padding: "0 14px 12px" }}>
         <div style={{ display: "flex", margin: "12px 0 4px", border: `1px solid ${C.border}`, borderRadius: 3, overflow: "hidden" }}>
           {["All", "East", "West"].map(v => (
-            <button key={v} onClick={() => setConf(v)} style={{ flex: 1, border: "none", padding: "6px 0", fontSize: 11, fontWeight: 700, letterSpacing: .8, textTransform: "uppercase", background: conf === v ? C.rule : C.visual, color: conf === v ? "#fff" : C.sec, cursor: "pointer", fontFamily: BODY }}>{v}</button>
+            <button key={v} onClick={() => setConf(v)} style={{ flex: 1, border: "none", padding: "6px 0", fontSize: 11, fontWeight: 700, letterSpacing: .8, textTransform: "uppercase", background: conf === v ? C.rule : C.visual, color: conf === v ? C.onRule : C.sec, cursor: "pointer", fontFamily: BODY }}>{v}</button>
           ))}
         </div>
         {rows.map((s, i) => (
@@ -476,7 +505,7 @@ function PlayersScreen({ open }) {
         </div>
         <div style={{ display: "flex", gap: 5, marginTop: 7 }}>
           {["All", "G", "F", "C"].map(v => (
-            <button key={v} onClick={() => setPos(v)} style={{ flex: 1, border: `1px solid ${pos === v ? C.rule : C.border}`, background: pos === v ? C.rule : "transparent", color: pos === v ? "#fff" : C.sec, borderRadius: 3, padding: "4px 0", fontSize: 10.5, fontWeight: 700, letterSpacing: .6, cursor: "pointer", fontFamily: BODY }}>{v}</button>
+            <button key={v} onClick={() => setPos(v)} style={{ flex: 1, border: `1px solid ${pos === v ? C.rule : C.border}`, background: pos === v ? C.rule : "transparent", color: pos === v ? C.onRule : C.sec, borderRadius: 3, padding: "4px 0", fontSize: 10.5, fontWeight: 700, letterSpacing: .6, cursor: "pointer", fontFamily: BODY }}>{v}</button>
           ))}
         </div>
       </div>
@@ -891,11 +920,24 @@ function PlayerDetail({ player: p, onBack, openTeam }) {
 // More / Support. No ads — so this is where the tip jar lives, alongside the
 // attribution and data-source disclosure the store listing needs anyway.
 // Deliberately the last tab: it should be findable, never in the way.
-function MoreScreen() {
+function MoreScreen({ theme, setTheme }) {
   return (
     <>
       <Masthead title="About" sub="sources · credits" />
       <div className="noscroll" style={{ flex: 1, overflowY: "auto", padding: "0 14px 16px" }}>
+
+        <SectionHead>Appearance</SectionHead>
+        <div style={{ display: "flex", gap: 0, margin: "8px 0 2px", border: `1px solid ${C.border}`, borderRadius: 3, overflow: "hidden" }}>
+          {[["light", "Light"], ["dark", "Dark"]].map(([k, label]) => (
+            <button key={k} onClick={() => setTheme(k)} style={{
+              flex: 1, border: "none", padding: "8px 0", fontSize: 11, fontWeight: 700, letterSpacing: .8, textTransform: "uppercase",
+              background: theme === k ? C.rule : C.visual, color: theme === k ? C.onRule : C.sec, cursor: "pointer", fontFamily: BODY,
+            }}>{label}</button>
+          ))}
+        </div>
+        <p style={{ fontSize: 10.5, lineHeight: 1.5, color: C.mute, padding: "6px 0 0", margin: 0 }}>
+          Light is the newspaper “Chalk Court” look; dark is the broadcast “Report” palette. Your choice is remembered.
+        </p>
 
         <SectionHead>Where the numbers come from</SectionHead>
         <p style={{ fontSize: 11.5, lineHeight: 1.6, color: C.sec, padding: "8px 0 4px", margin: 0 }}>
@@ -1044,7 +1086,7 @@ function TeamSeason({ team }) {
           <button key={v} onClick={() => setView(v)} style={{
             flex: 1, border: "none", padding: "7px 0", fontSize: 11, fontWeight: 700, letterSpacing: .8,
             textTransform: "uppercase", cursor: "pointer", fontFamily: BODY,
-            background: view === v ? C.rule : C.visual, color: view === v ? "#fff" : C.sec,
+            background: view === v ? C.rule : C.visual, color: view === v ? C.onRule : C.sec,
           }}>{v} <span style={{ opacity: .6, fontWeight: 500 }}>{n}</span></button>
         ))}
       </div>
@@ -1191,7 +1233,7 @@ function ShotFingerprint({ p }) {
           <button key={k} onClick={() => setMode(k)} style={{
             flex: 1, border: "none", padding: "7px 0", fontSize: 11, fontWeight: 700, letterSpacing: .7,
             textTransform: "uppercase", cursor: "pointer", fontFamily: BODY,
-            background: mode === k ? C.rule : C.visual, color: mode === k ? "#fff" : C.sec,
+            background: mode === k ? C.rule : C.visual, color: mode === k ? C.onRule : C.sec,
           }}>{l}</button>
         ))}
       </div>
