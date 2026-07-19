@@ -512,14 +512,14 @@ function PlayersScreen({ open }) {
 
 // ============================================================================
 function ScheduleScreen({ open }) {
+  const cutoff = RAW.meta.lastGame || "";   // latest final; games dated before this with no result are "awaiting"
   const days = useMemo(() => {
-    const cutoff = RAW.meta.lastGame || "";
     const m = {};
-    // Upcoming = not yet played AND not stranded in the past. A game with no
-    // result dated before the latest final has been postponed/rescheduled; hide
-    // it until the feed moves it to its new date, rather than showing a phantom
-    // past fixture at the top of the schedule.
-    GAMES.filter(g => !g.done && g.date >= cutoff)
+    // Everything not yet played. A game whose date has passed but has no result
+    // (postponed, or the box score is still landing) is kept and marked
+    // "Awaiting data" in the row rather than hidden, so nothing silently
+    // disappears. It resolves once the result arrives or the feed reschedules it.
+    GAMES.filter(g => !g.done)
       .slice()
       .sort((a, b) => a.date < b.date ? -1 : a.date > b.date ? 1 : 0)
       .forEach(g => { (m[g.date] ||= []).push(g); });
@@ -540,18 +540,22 @@ function ScheduleScreen({ open }) {
             <div style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: 1.2, textTransform: "uppercase", color: C.sec, padding: "12px 0 4px", borderBottom: `1.5px solid ${C.rule}` }}>
               {new Date(date + "T12:00:00").toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" })}
             </div>
-            {gs.map(g => (
+            {gs.map(g => {
+              const awaiting = g.date < cutoff;   // date has passed but no box score yet
+              return (
               <div key={g.id} onClick={() => open("game", g.id)} style={{ display: "flex", alignItems: "center", gap: 8, padding: "9px 0", borderBottom: `1px solid ${C.border}`, cursor: "pointer" }}>
                 <div style={{ flex: 1 }}>
                   <SchedSide t={g.away} score={g.as} win={g.done && g.as > g.hs} done={g.done} />
                   <SchedSide t={g.home} score={g.hs} win={g.done && g.hs > g.as} done={g.done} prefix="vs" />
                 </div>
                 <div style={{ textAlign: "right", minWidth: 74 }}>
-                  <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: .5, textTransform: "uppercase", color: g.tier === "N" ? C.accent : C.mute, border: g.tier === "N" ? `1px solid ${C.accent}` : "none", borderRadius: 2, padding: g.tier === "N" ? "2px 5px" : 0, display: "inline-block" }}>{g.net.replace("WNBA ", "")}</div>
+                  {awaiting
+                    ? <div style={{ fontSize: 8.5, fontWeight: 700, letterSpacing: .5, textTransform: "uppercase", color: C.sec, border: `1px solid ${C.border}`, borderRadius: 2, padding: "2px 5px", display: "inline-block" }}>Awaiting data</div>
+                    : <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: .5, textTransform: "uppercase", color: g.tier === "N" ? C.accent : C.mute, border: g.tier === "N" ? `1px solid ${C.accent}` : "none", borderRadius: 2, padding: g.tier === "N" ? "2px 5px" : 0, display: "inline-block" }}>{g.net.replace("WNBA ", "")}</div>}
                   <div style={{ fontSize: 9, color: C.mute, marginTop: 3 }}>{g.city}</div>
                 </div>
               </div>
-            ))}
+            );})}
           </div>
         ))}
       </div>
