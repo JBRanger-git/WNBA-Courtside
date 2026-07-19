@@ -513,15 +513,19 @@ function PlayersScreen({ open }) {
 // ============================================================================
 function ScheduleScreen({ open }) {
   const days = useMemo(() => {
+    const cutoff = RAW.meta.lastGame || "";
     const m = {};
-    // Upcoming only: a game is "played" iff it has box-score rows (g.done). Show the rest.
-    GAMES.filter(g => !g.done)
+    // Upcoming = not yet played AND not stranded in the past. A game with no
+    // result dated before the latest final has been postponed/rescheduled; hide
+    // it until the feed moves it to its new date, rather than showing a phantom
+    // past fixture at the top of the schedule.
+    GAMES.filter(g => !g.done && g.date >= cutoff)
       .slice()
       .sort((a, b) => a.date < b.date ? -1 : a.date > b.date ? 1 : 0)
       .forEach(g => { (m[g.date] ||= []).push(g); });
     return Object.entries(m);
   }, []);
-  const upcoming = RAW.meta.totalGames - RAW.meta.completedGames;
+  const upcoming = days.reduce((n, [, gs]) => n + gs.length, 0);
   return (
     <>
       <Masthead title="Schedule" sub={`${upcoming} upcoming`} />

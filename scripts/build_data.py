@@ -95,6 +95,20 @@ def build(csv_dir: Path, out_dir: Path):
     completed = sum(r[9] for r in G)
     print(f"  games          {len(G)}  ({completed} completed, {len(G)-completed} upcoming, {skipped} teamless skipped)")
 
+    # Postponement check: a game dated BEFORE the most recent final but with no
+    # box score has almost certainly been postponed/rescheduled — its result will
+    # never arrive on the original date. Surface it (never fabricate a score), so
+    # a phantom past fixture doesn't sit silently in the schedule. The app hides
+    # these from "upcoming" and shows them once the feed moves them to a new date.
+    last_done = max((r[1] for r in G if r[9]), default=None)
+    if last_done:
+        abbr = {t[0]: t[1] for t in T}
+        stale = [r for r in G if r[9] == 0 and r[1] < last_done]
+        if stale:
+            which = ", ".join(f"{abbr.get(r[3], r[3])}@{abbr.get(r[2], r[2])} {r[1]}" for r in stale)
+            print(f"  postponed?     {len(stale)} past fixture(s) with no result (likely "
+                  f"postponed/rescheduled): {which}")
+
     # FIX: every pct column in fact_player_season is a FRACTION, usage_pct included
     # (0.332 = 33.2%). Miss the *100 and A'ja Wilson renders as 0.3% usage.
     P = []
