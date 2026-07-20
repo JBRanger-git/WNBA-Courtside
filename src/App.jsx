@@ -874,12 +874,13 @@ function PlayerDetail({ player: p, onBack, openTeam }) {
       <div className="noscroll" style={{ flex: 1, overflowY: "auto", padding: "0 14px 12px" }}>
         {sub === "Profile" && <>
           <BioStrip p={p} />
+          <PlayerBlurb p={p} />
           <SectionHead action="per game">Season</SectionHead>
           <StatGrid items={[
             ["Minutes", p.mpg], ["Points", p.ppg], ["Rebounds", p.rpg], ["Assists", p.apg],
             ["Steals", p.spg], ["Blocks", p.bpg], ["Turnovers", p.topg], ["Usage", p.usg + "%"],
           ]} />
-          <SectionHead>Club</SectionHead>
+          <SectionHead>Team</SectionHead>
           <button onClick={() => openTeam(p.teamId)} style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "12px 0", border: "none", borderBottom: `1px solid ${C.border}`, background: "none", cursor: "pointer", textAlign: "left" }}>
             <Crest team={p.team} size={30} />
             <span style={{ flex: 1, fontFamily: DISPLAY, fontSize: 14.5, letterSpacing: .5, textTransform: "uppercase" }}>{p.team.name}</span>
@@ -1006,6 +1007,35 @@ function BioStrip({ p }) {
   );
 }
 
+
+// A short, factual player line — composed entirely from data already in the
+// model (role, season, headline averages), never fabricated prose. It fills the
+// profile's dead space above the stat grid and reads like an agate scouting
+// note. Deliberately pronoun-free and terse. College (Wikidata/CC0) slots in
+// when present; every clause degrades to nothing if its fact is missing, so a
+// bare "Guard for the Dallas Wings." is still a valid line.
+const POS_FULL = { G: "Guard", F: "Forward", C: "Center" };
+const ordinal = (n) => {
+  const s = ["th", "st", "nd", "rd"], v = n % 100;
+  return n + (s[(v - 20) % 10] || s[v] || s[0]);
+};
+function PlayerBlurb({ p }) {
+  const b = p.bio || {};
+  const role = b.posFull || POS_FULL[p.pos] || p.pos;
+  let s1 = `${role} for the ${p.team.name}`;
+  if (b.college) s1 += `, out of ${b.college}`;
+  s1 += ".";
+
+  const season = b.exp === 0 ? "Rookie season" : b.exp != null ? `${ordinal(b.exp + 1)} season` : null;
+  const line = `averaging ${p.ppg} points, ${p.rpg} rebounds and ${p.apg} assists across ${p.gp} game${p.gp === 1 ? "" : "s"}.`;
+  const s2 = season ? `${season} — ${line}` : line.charAt(0).toUpperCase() + line.slice(1);
+
+  return (
+    <p style={{ fontSize: 12, lineHeight: 1.55, color: C.sec, padding: "10px 0", margin: 0, borderBottom: `1px solid ${C.border}` }}>
+      <span style={{ color: C.text }}>{s1}</span> <span style={agate}>{s2}</span>
+    </p>
+  );
+}
 
 // Home venue(s) and attendance, both derived from dim_games. The alternate-venue
 // line matters more than it looks: Toronto play a touring slate across four
