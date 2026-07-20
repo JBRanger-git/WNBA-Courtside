@@ -1176,21 +1176,28 @@ function arcPath() {
 }
 const ARC_D = "M " + arcPath().map(([x, y]) => `${x.toFixed(2)} ${y.toFixed(2)}`).join(" L ");
 
+// The shot chart is a data visualisation, not an app surface: its zone fills
+// encode frequency/accuracy and were tuned for a light "chalk court". Theming it
+// dark muddies those low-opacity fills and — worse — turns the labels near-white
+// against a white halo, so they vanish. So the court renders with the LIGHT
+// palette in BOTH modes (same as light mode); only the surrounding UI themes.
+const COURT = LIGHT;
+
 // White halo behind glyphs via paint-order, so a label stays legible whether
 // its zone is near-white or fully saturated.
 const HALO = { stroke: "#FFFFFF", strokeWidth: 0.85, paintOrder: "stroke", strokeLinejoin: "round" };
 
 function ZoneLabel({ x, y, name, value, delta, mode }) {
   if (value == null) return null;
-  const dc = delta == null ? C.mute : delta > 0 ? C.good : C.bad;
+  const dc = delta == null ? COURT.mute : delta > 0 ? COURT.good : COURT.bad;
   return (
     <g transform={`translate(${x} ${y})`}>
       <text textAnchor="middle" y={0} {...HALO}
-        style={{ fontSize: 1.45, fontWeight: 700, letterSpacing: 0.12, fill: C.sec }}>
+        style={{ fontSize: 1.45, fontWeight: 700, letterSpacing: 0.12, fill: COURT.sec }}>
         {name}
       </text>
       <text textAnchor="middle" y={2.9} {...HALO}
-        style={{ fontFamily: DISPLAY, fontSize: 2.9, fontWeight: 700, fill: C.text }}>
+        style={{ fontFamily: DISPLAY, fontSize: 2.9, fontWeight: 700, fill: COURT.text }}>
         {value.toFixed(1)}%
       </text>
       {mode === "eff" && delta != null && (
@@ -1218,10 +1225,10 @@ function ShotFingerprint({ p }) {
 
   const maxF = Math.max(...d.f);
   const tone = (i) => {
-    if (mode === "freq") return { c: C.accent, o: 0.07 + (d.f[i] / maxF) * 0.6 };
-    if (d.p[i] == null) return { c: C.mute, o: 0.08 };
+    if (mode === "freq") return { c: COURT.accent, o: 0.07 + (d.f[i] / maxF) * 0.6 };
+    if (d.p[i] == null) return { c: COURT.mute, o: 0.08 };
     const delta = d.p[i] - SHOTS.LG.fg[i];
-    return { c: delta >= 0 ? C.good : C.bad, o: 0.09 + Math.min(Math.abs(delta) / 15, 1) * 0.58 };
+    return { c: delta >= 0 ? COURT.good : COURT.bad, o: 0.09 + Math.min(Math.abs(delta) / 15, 1) * 0.58 };
   };
   const val = (i) => (mode === "freq" ? d.f[i] : d.p[i]);
   const dlt = (i) => (d.p[i] == null ? null : d.p[i] - SHOTS.LG.fg[i]);
@@ -1240,7 +1247,7 @@ function ShotFingerprint({ p }) {
 
       <svg viewBox={`-0.5 -0.5 ${CW + 1} ${CD + 1}`} role="img"
            aria-label={`Shot zone map for ${p.name}`}
-           style={{ width: "100%", display: "block", background: C.visual, border: `1px solid ${C.border}` }}>
+           style={{ width: "100%", display: "block", background: COURT.visual, border: `1px solid ${COURT.border}` }}>
         {/* fills painted back to front — overlap does the clipping */}
         <rect x={0} y={0} width={CW} height={CD} fill={tone(4).c} fillOpacity={tone(4).o} />
         <rect x={0} y={sy(CORNER_MEET)} width={CORNER_X} height={CORNER_MEET} fill={tone(3).c} fillOpacity={tone(3).o} />
@@ -1251,7 +1258,7 @@ function ShotFingerprint({ p }) {
               fill={tone(0).c} fillOpacity={tone(0).o} />
 
         {/* court markings */}
-        <g fill="none" stroke={C.text} strokeWidth={0.2} strokeOpacity={0.55} strokeLinejoin="round">
+        <g fill="none" stroke={COURT.text} strokeWidth={0.2} strokeOpacity={0.55} strokeLinejoin="round">
           <rect x={0} y={0} width={CW} height={CD} strokeOpacity={0.3} />
           <rect x={CW / 2 - 8} y={sy(19)} width={16} height={19} />
           <path d={`M ${CW / 2 - 6} ${sy(19)} A 6 6 0 0 1 ${CW / 2 + 6} ${sy(19)}`} />
@@ -1260,8 +1267,8 @@ function ShotFingerprint({ p }) {
           <line x1={CW - CORNER_X} y1={CD} x2={CW - CORNER_X} y2={sy(CORNER_MEET)} />
           <path d={`M ${CW / 2 - RA_R} ${sy(HOOP_Y)} A ${RA_R} ${RA_R} 0 0 1 ${CW / 2 + RA_R} ${sy(HOOP_Y)}`} strokeOpacity={0.35} />
         </g>
-        <line x1={CW / 2 - 3} y1={sy(4)} x2={CW / 2 + 3} y2={sy(4)} stroke={C.text} strokeWidth={0.4} strokeOpacity={0.7} />
-        <circle cx={CW / 2} cy={sy(HOOP_Y)} r={0.7} fill="none" stroke={C.accent} strokeWidth={0.38} />
+        <line x1={CW / 2 - 3} y1={sy(4)} x2={CW / 2 + 3} y2={sy(4)} stroke={COURT.text} strokeWidth={0.4} strokeOpacity={0.7} />
+        <circle cx={CW / 2} cy={sy(HOOP_Y)} r={0.7} fill="none" stroke={COURT.accent} strokeWidth={0.38} />
 
         {/* labels — positions checked against each zone's real free space */}
         <ZoneLabel x={CW / 2} y={sy(3.3)} name="RIM"       value={val(0)} delta={dlt(0)} mode="freq" />
@@ -1276,14 +1283,14 @@ function ShotFingerprint({ p }) {
         {val(3) != null && (
           <text x={CORNER_X / 2} y={sy(4.0)} textAnchor="middle"
                 transform={`rotate(-90 ${CORNER_X / 2} ${sy(4.0)})`} {...HALO}
-                style={{ fontFamily: DISPLAY, fontSize: 2.4, fontWeight: 700, fill: C.text }}>
+                style={{ fontFamily: DISPLAY, fontSize: 2.4, fontWeight: 700, fill: COURT.text }}>
             {val(3).toFixed(1)}%
           </text>
         )}
         {/* rim delta sits beside the arc rather than under it — no room below */}
         {mode === "eff" && dlt(0) != null && (
           <text x={CW / 2} y={sy(10.6)} textAnchor="middle" {...HALO}
-                style={{ fontSize: 1.5, fontWeight: 700, fill: dlt(0) > 0 ? C.good : C.bad }}>
+                style={{ fontSize: 1.5, fontWeight: 700, fill: dlt(0) > 0 ? COURT.good : COURT.bad }}>
             {dlt(0) > 0 ? "+" : ""}{dlt(0).toFixed(1)} vs lg
           </text>
         )}
