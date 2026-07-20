@@ -39,7 +39,7 @@ jobs:
         # they read as NA. Skip packages already restored from cache so warm
         # runs are fast.
         run: |
-          pkgs <- c("wehoop", "dplyr", "readr", "arrow", "bit64")
+          pkgs <- c("wehoop", "dplyr", "readr", "arrow", "bit64", "jsonlite")
           need <- pkgs[!vapply(pkgs, requireNamespace, logical(1), quietly = TRUE)]
           if (length(need)) install.packages(need)
 
@@ -55,6 +55,12 @@ jobs:
 
       - name: Fetch fresh data (R → CSV)
         run: Rscript scripts/fetch_wnba.R
+
+      - name: Fetch WNBA news (R → CSV)
+        # Adds dim_news.csv (headlines + real story URLs) for the app's Wire.
+        # Fully defensive and never fatal: on any failure build_data.py preserves
+        # the previous news rather than blanking it.
+        run: Rscript scripts/fetch_news.R || echo "news fetch step failed — continuing with preserved news"
 
       - name: Rebuild snapshot (CSV → JSON)
         run: python3 scripts/build_data.py ./data/csv ./src/data

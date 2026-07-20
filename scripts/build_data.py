@@ -131,9 +131,26 @@ def build(csv_dir: Path, out_dir: Path):
         N = PREV.get("N") or []
         print(f"  news           {len(N)}  (preserved — no dim_news.csv)")
     else:
-        N = sorted([[n["headline"], n["byline"] or "", n["abbreviation"] or "", n["published_date"][:10]]
-                    for n in news_raw], key=lambda r:r[3], reverse=True)[:5]
-        print(f"  news           {len(N)}")
+        # Row shape: [headline, byline, abbr, date, link]. abbr comes straight from
+        # an `abbreviation` column if the source has one, else it's mapped from the
+        # ESPN team_id (same id space as T). link may be blank — the app renders a
+        # plain, non-clickable headline then.
+        abbr_by_tid = {t[0]: t[1] for t in T}
+        def _news_abbr(n):
+            if n.get("abbreviation"): return n["abbreviation"]
+            tid = (n.get("team_id") or "").strip()
+            if tid:
+                try: return abbr_by_tid.get(int(float(tid)), "")
+                except (ValueError, TypeError): return ""
+            return ""
+        rows = []
+        for n in news_raw:
+            head = (n.get("headline") or "").strip()
+            if not head: continue
+            rows.append([head, (n.get("byline") or "").strip(), _news_abbr(n),
+                         (n.get("published_date") or "")[:10], (n.get("link") or "").strip()])
+        N = sorted(rows, key=lambda r:r[3], reverse=True)[:5]
+        print(f"  news           {len(N)}  ({sum(1 for r in N if r[4])} with links)")
 
     # weight is only ~53% filled, so it's excluded rather than shown as a gap.
     if players_raw is None:
