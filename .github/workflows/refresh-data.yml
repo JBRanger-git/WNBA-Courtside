@@ -62,6 +62,12 @@ jobs:
         # the previous news rather than blanking it.
         run: Rscript scripts/fetch_news.R || echo "news fetch step failed — continuing with preserved news"
 
+      - name: Fetch per-quarter scores (R → CSV)
+        # Adds fact_game_line.csv (linescores) for the game page's quarter table.
+        # Defensive and non-fatal; build_data.py reconciles quarters to the final
+        # score and preserves prior lines, so a miss never breaks the refresh.
+        run: Rscript scripts/fetch_lines.R || echo "lines fetch step failed — continuing with preserved lines"
+
       - name: Rebuild snapshot (CSV → JSON)
         run: python3 scripts/build_data.py ./data/csv ./src/data
 

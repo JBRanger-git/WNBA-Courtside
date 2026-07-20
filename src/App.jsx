@@ -30,13 +30,14 @@ import { Home, Shield, Users, CalendarDays, ChevronLeft, ChevronRight, Search, M
 // fresher snapshot arriving mid-session swaps the whole app's data with one
 // re-render. Components read these module bindings at render time, so
 // reassigning them here is all that's needed — no prop/context threading.
-let RAW, BIO, TEAM_BIO, SHOTS, GAMEBOX, TEAMS, TEAM, STANDINGS, PLAYERS, GAMES, GAME, NEWS;
+let RAW, BIO, TEAM_BIO, SHOTS, GAMEBOX, GAMELINE, TEAMS, TEAM, STANDINGS, PLAYERS, GAMES, GAME, NEWS;
 function computeTables() {
   RAW = getData();
   BIO = RAW.BIO || {};
   TEAM_BIO = RAW.TEAM_BIO || {};
   SHOTS = RAW.SHOTS || { LG: null, P: {} };   // null when fact_pbp is absent
   GAMEBOX = RAW.GB || {};                      // per-game box detail, keyed by game id (completed games)
+  GAMELINE = RAW.GL || {};                     // per-quarter scores, keyed by game id (reconciled to final)
   TEAMS = RAW.T.map(([id, abbr, name, shortName, color, conf]) => ({ id, abbr, name, shortName, color, conf, bio: TEAM_BIO[id] || {} }));
   TEAM = Object.fromEntries(TEAMS.map(t => [t.id, t]));
   STANDINGS = RAW.S.map(([id, w, l, pct, pf, pa, diff, streak, l10, home, road]) =>
@@ -692,6 +693,46 @@ function DetailHead({ color, onBack, eyebrow, title, right, badge }) {
   );
 }
 
+// Scoring by quarter. Reconciled server-side (quarters sum to the final on both
+// sides, else the game is dropped), so the row totals always match the header
+// score. Columns extend to OT when the game went past regulation.
+function QuarterScores({ g, line }) {
+  const home = line.home || [], away = line.away || [];
+  const n = Math.max(home.length, away.length, 4);
+  const labels = Array.from({ length: n }, (_, i) =>
+    i < 4 ? String(i + 1) : (n - 4 > 1 ? `OT${i - 3}` : "OT"));
+  const sum = (a) => a.reduce((s, v) => s + (v || 0), 0);
+  const aT = sum(away), hT = sum(home);
+  const Row = ({ t, vals, tot, win }) => (
+    <tr style={{ borderBottom: `1px solid ${C.border}` }}>
+      <td style={{ ...tdStyle, textAlign: "left" }}>
+        <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <span style={{ width: 3, height: 13, background: t.color, flexShrink: 0 }} />
+          <b style={{ fontWeight: 500 }}>{t.abbr}</b>
+        </span>
+      </td>
+      {labels.map((_, i) => <td key={i} style={{ ...tdStyle, color: C.sec }}>{vals[i] ?? "–"}</td>)}
+      <td style={{ ...tdStyle, fontWeight: 700, color: win ? C.text : C.sec }}>{tot}</td>
+    </tr>
+  );
+  return (
+    <>
+      <SectionHead>By quarter</SectionHead>
+      <table style={{ width: "100%", borderCollapse: "collapse" }}>
+        <thead><tr>
+          <th style={{ ...thStyle, textAlign: "left" }}>Team</th>
+          {labels.map((l, i) => <th key={i} style={thStyle}>{l}</th>)}
+          <th style={thStyle}>T</th>
+        </tr></thead>
+        <tbody>
+          <Row t={g.away} vals={away} tot={aT} win={aT > hT} />
+          <Row t={g.home} vals={home} tot={hT} win={hT > aT} />
+        </tbody>
+      </table>
+    </>
+  );
+}
+
 // ============================================================================
 // Game page. Final score, each club's season form, and — for completed games
 // whose box detail is in the bundle (GAMEBOX) — a team box comparison and each
@@ -733,6 +774,8 @@ function GameDetail({ game: g, onBack, openTeam, openPlayer }) {
           {g.city && <span>{g.city}</span>}
           {g.net && <span>{g.net.replace("WNBA ", "")}</span>}
         </div>
+
+        {GAMELINE[g.id] && <QuarterScores g={g} line={GAMELINE[g.id]} />}
 
         {gb && (() => {
           const A = gb.box.away, H = gb.box.home;   // [pts,reb,ast,stl,blk,tov,fgm,fga,tpm,tpa,ftm,fta]
