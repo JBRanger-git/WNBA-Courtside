@@ -1,4 +1,5 @@
-import React, { useState, useMemo, useEffect, useReducer } from "react";
+import React, { useState, useMemo, useEffect, useReducer, useRef } from "react";
+import { App as CapacitorApp } from "@capacitor/app";
 import { getData, subscribe } from "./data/dataSource";
 import { Home, Shield, Users, CalendarDays, ChevronLeft, ChevronRight, Search, MoreHorizontal, ExternalLink } from "lucide-react";
 
@@ -171,6 +172,31 @@ export default function CourtsideApp() {
   const [theme, setTheme] = useState(initialTheme());
   const chooseTheme = (m) => { applyTheme(m); try { localStorage.setItem(THEME_KEY, m); } catch {} setTheme(m); };
   const [ready, setReady] = useState(false); // drives the splash fade-out
+  const [showExit, setShowExit] = useState(false); // exit-confirm dialog on the Android back button
+
+  // Android hardware/gesture back button. One level per press:
+  //   exit dialog open ▸ close it   ·   search open ▸ close it
+  //   detail page open ▸ pop to the tab   ·   on a top-level tab ▸ ask to exit
+  // A ref holds the latest state so the once-registered native listener always
+  // sees current values without re-subscribing.
+  const backRef = useRef(() => {});
+  backRef.current = () => {
+    if (showExit) { setShowExit(false); return; }
+    if (search)   { setSearch(false);  return; }
+    if (stack)    { setStack(null);    return; }
+    setShowExit(true);
+  };
+  useEffect(() => {
+    let handle;
+    // Registering a backButton listener overrides Capacitor's default (exit the
+    // app), so navigation is ours to drive. No-op on web (event never fires).
+    CapacitorApp.addListener?.("backButton", () => backRef.current())
+      .then(h => { handle = h; }).catch(() => {});
+    // Mirror of the same handler for headless testing (no hardware button on web).
+    if (typeof window !== "undefined") window.__courtsideBack = () => backRef.current();
+    return () => { try { handle && handle.remove(); } catch {} };
+  }, []);
+  const exitApp = () => { try { CapacitorApp.exitApp?.(); } catch {} };
 
   // Live data refresh (Phase 2): when a fresher snapshot arrives from the
   // network, rebuild the derived tables and re-render — no relaunch needed.
@@ -199,6 +225,8 @@ export default function CourtsideApp() {
       <Splash done={ready} />
 
       {search && <SearchOverlay open={open} close={() => setSearch(false)} />}
+
+      {showExit && <ExitConfirm onCancel={() => setShowExit(false)} onExit={exitApp} />}
 
       {stack ? (
         stack.type === "team"
@@ -249,6 +277,32 @@ function Splash({ done }) {
       <span style={{ width: 132, height: 1.5, background: C.rule, marginTop: 16, opacity: .85 }} />
       <span style={{ marginTop: 12, fontSize: 10, letterSpacing: 3.5, textTransform: "uppercase", color: C.sec, fontWeight: 700 }}>WNBA statistics</span>
       <span style={{ position: "absolute", bottom: 30, fontSize: 8.5, letterSpacing: 2, textTransform: "uppercase", color: C.mute, fontWeight: 600 }}>A WNBA Fan Project</span>
+    </div>
+  );
+}
+
+// Exit confirmation, shown when the back button is pressed on a top-level tab.
+// Chalk-Court styling (accent spine, agate display type). Tapping the scrim or
+// Cancel dismisses; Exit closes the app (App.exitApp — no-op on the web).
+function ExitConfirm({ onCancel, onExit }) {
+  return (
+    <div role="dialog" aria-modal="true" aria-label="Exit Courtside"
+      onClick={onCancel}
+      style={{ position: "absolute", inset: 0, zIndex: 50, background: "rgba(21,21,28,.55)",
+        display: "flex", alignItems: "center", justifyContent: "center", padding: 28 }}>
+      <div onClick={e => e.stopPropagation()} style={{
+        width: "100%", maxWidth: 300, background: C.card, border: `1px solid ${C.border}`,
+        borderRadius: 6, overflow: "hidden", boxShadow: "0 14px 44px rgba(0,0,0,.34)" }}>
+        <div style={{ height: 4, background: C.accent }} />
+        <div style={{ padding: "18px 18px 16px" }}>
+          <div style={{ fontFamily: DISPLAY, fontWeight: 600, fontSize: 17, letterSpacing: .5, textTransform: "uppercase", color: C.text }}>Exit Courtside?</div>
+          <p style={{ fontSize: 12.5, lineHeight: 1.5, color: C.sec, margin: "6px 0 16px" }}>You're on the main screen. Close the app?</p>
+          <div style={{ display: "flex", gap: 10 }}>
+            <button onClick={onCancel} style={{ flex: 1, padding: "10px 0", border: `1px solid ${C.border}`, background: C.visual, color: C.text, borderRadius: 4, fontSize: 12, fontWeight: 700, letterSpacing: .6, textTransform: "uppercase", cursor: "pointer", fontFamily: BODY }}>Stay</button>
+            <button onClick={onExit} style={{ flex: 1, padding: "10px 0", border: "none", background: C.rule, color: C.onRule, borderRadius: 4, fontSize: 12, fontWeight: 700, letterSpacing: .6, textTransform: "uppercase", cursor: "pointer", fontFamily: BODY }}>Exit</button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
