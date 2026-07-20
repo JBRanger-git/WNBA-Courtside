@@ -215,7 +215,7 @@ export default function CourtsideApp() {
   const back = () => setStack(null);
 
   return (
-    <div style={{ background: C.page, height: "100%", display: "flex", flexDirection: "column", position: "relative", overflow: "hidden", fontFamily: BODY }}>
+    <div style={{ background: C.page, color: C.text, height: "100%", display: "flex", flexDirection: "column", position: "relative", overflow: "hidden", fontFamily: BODY }}>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=Roboto:wght@400;500;700&display=swap');
         .noscroll::-webkit-scrollbar{display:none}
