@@ -1,4 +1,5 @@
-import React, { useState, useMemo, useEffect, useReducer } from "react";
+import React, { useState, useMemo, useEffect, useReducer, useRef } from "react";
+import { App as CapacitorApp } from "@capacitor/app";
 import { getData, subscribe } from "./data/dataSource";
 import { Home, Shield, Users, CalendarDays, ChevronLeft, ChevronRight, Search, MoreHorizontal, ExternalLink } from "lucide-react";
 
@@ -29,13 +30,14 @@ import { Home, Shield, Users, CalendarDays, ChevronLeft, ChevronRight, Search, M
 // fresher snapshot arriving mid-session swaps the whole app's data with one
 // re-render. Components read these module bindings at render time, so
 // reassigning them here is all that's needed — no prop/context threading.
-let RAW, BIO, TEAM_BIO, SHOTS, GAMEBOX, TEAMS, TEAM, STANDINGS, PLAYERS, GAMES, GAME, NEWS;
+let RAW, BIO, TEAM_BIO, SHOTS, GAMEBOX, GAMELINE, TEAMS, TEAM, STANDINGS, PLAYERS, GAMES, GAME, NEWS;
 function computeTables() {
   RAW = getData();
   BIO = RAW.BIO || {};
   TEAM_BIO = RAW.TEAM_BIO || {};
   SHOTS = RAW.SHOTS || { LG: null, P: {} };   // null when fact_pbp is absent
   GAMEBOX = RAW.GB || {};                      // per-game box detail, keyed by game id (completed games)
+  GAMELINE = RAW.GL || {};                     // per-quarter scores, keyed by game id (reconciled to final)
   TEAMS = RAW.T.map(([id, abbr, name, shortName, color, conf]) => ({ id, abbr, name, shortName, color, conf, bio: TEAM_BIO[id] || {} }));
   TEAM = Object.fromEntries(TEAMS.map(t => [t.id, t]));
   STANDINGS = RAW.S.map(([id, w, l, pct, pf, pa, diff, streak, l10, home, road]) =>
@@ -171,6 +173,31 @@ export default function CourtsideApp() {
   const [theme, setTheme] = useState(initialTheme());
   const chooseTheme = (m) => { applyTheme(m); try { localStorage.setItem(THEME_KEY, m); } catch {} setTheme(m); };
   const [ready, setReady] = useState(false); // drives the splash fade-out
+  const [showExit, setShowExit] = useState(false); // exit-confirm dialog on the Android back button
+
+  // Android hardware/gesture back button. One level per press:
+  //   exit dialog open ▸ close it   ·   search open ▸ close it
+  //   detail page open ▸ pop to the tab   ·   on a top-level tab ▸ ask to exit
+  // A ref holds the latest state so the once-registered native listener always
+  // sees current values without re-subscribing.
+  const backRef = useRef(() => {});
+  backRef.current = () => {
+    if (showExit) { setShowExit(false); return; }
+    if (search)   { setSearch(false);  return; }
+    if (stack)    { setStack(null);    return; }
+    setShowExit(true);
+  };
+  useEffect(() => {
+    let handle;
+    // Registering a backButton listener overrides Capacitor's default (exit the
+    // app), so navigation is ours to drive. No-op on web (event never fires).
+    CapacitorApp.addListener?.("backButton", () => backRef.current())
+      .then(h => { handle = h; }).catch(() => {});
+    // Mirror of the same handler for headless testing (no hardware button on web).
+    if (typeof window !== "undefined") window.__courtsideBack = () => backRef.current();
+    return () => { try { handle && handle.remove(); } catch {} };
+  }, []);
+  const exitApp = () => { try { CapacitorApp.exitApp?.(); } catch {} };
 
   // Live data refresh (Phase 2): when a fresher snapshot arrives from the
   // network, rebuild the derived tables and re-render — no relaunch needed.
@@ -188,7 +215,7 @@ export default function CourtsideApp() {
   const back = () => setStack(null);
 
   return (
-    <div style={{ background: C.page, height: "100%", display: "flex", flexDirection: "column", position: "relative", overflow: "hidden", fontFamily: BODY }}>
+    <div style={{ background: C.page, color: C.text, height: "100%", display: "flex", flexDirection: "column", position: "relative", overflow: "hidden", fontFamily: BODY }}>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=Roboto:wght@400;500;700&display=swap');
         .noscroll::-webkit-scrollbar{display:none}
@@ -199,6 +226,8 @@ export default function CourtsideApp() {
       <Splash done={ready} />
 
       {search && <SearchOverlay open={open} close={() => setSearch(false)} />}
+
+      {showExit && <ExitConfirm onCancel={() => setShowExit(false)} onExit={exitApp} />}
 
       {stack ? (
         stack.type === "team"
@@ -249,6 +278,32 @@ function Splash({ done }) {
       <span style={{ width: 132, height: 1.5, background: C.rule, marginTop: 16, opacity: .85 }} />
       <span style={{ marginTop: 12, fontSize: 10, letterSpacing: 3.5, textTransform: "uppercase", color: C.sec, fontWeight: 700 }}>WNBA statistics</span>
       <span style={{ position: "absolute", bottom: 30, fontSize: 8.5, letterSpacing: 2, textTransform: "uppercase", color: C.mute, fontWeight: 600 }}>A WNBA Fan Project</span>
+    </div>
+  );
+}
+
+// Exit confirmation, shown when the back button is pressed on a top-level tab.
+// Chalk-Court styling (accent spine, agate display type). Tapping the scrim or
+// Cancel dismisses; Exit closes the app (App.exitApp — no-op on the web).
+function ExitConfirm({ onCancel, onExit }) {
+  return (
+    <div role="dialog" aria-modal="true" aria-label="Exit Courtside"
+      onClick={onCancel}
+      style={{ position: "absolute", inset: 0, zIndex: 50, background: "rgba(21,21,28,.55)",
+        display: "flex", alignItems: "center", justifyContent: "center", padding: 28 }}>
+      <div onClick={e => e.stopPropagation()} style={{
+        width: "100%", maxWidth: 300, background: C.card, border: `1px solid ${C.border}`,
+        borderRadius: 6, overflow: "hidden", boxShadow: "0 14px 44px rgba(0,0,0,.34)" }}>
+        <div style={{ height: 4, background: C.accent }} />
+        <div style={{ padding: "18px 18px 16px" }}>
+          <div style={{ fontFamily: DISPLAY, fontWeight: 600, fontSize: 17, letterSpacing: .5, textTransform: "uppercase", color: C.text }}>Exit Courtside?</div>
+          <p style={{ fontSize: 12.5, lineHeight: 1.5, color: C.sec, margin: "6px 0 16px" }}>You're on the main screen. Close the app?</p>
+          <div style={{ display: "flex", gap: 10 }}>
+            <button onClick={onCancel} style={{ flex: 1, padding: "10px 0", border: `1px solid ${C.border}`, background: C.visual, color: C.text, borderRadius: 4, fontSize: 12, fontWeight: 700, letterSpacing: .6, textTransform: "uppercase", cursor: "pointer", fontFamily: BODY }}>Stay</button>
+            <button onClick={onExit} style={{ flex: 1, padding: "10px 0", border: "none", background: C.rule, color: C.onRule, borderRadius: 4, fontSize: 12, fontWeight: 700, letterSpacing: .6, textTransform: "uppercase", cursor: "pointer", fontFamily: BODY }}>Exit</button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
@@ -638,6 +693,46 @@ function DetailHead({ color, onBack, eyebrow, title, right, badge }) {
   );
 }
 
+// Scoring by quarter. Reconciled server-side (quarters sum to the final on both
+// sides, else the game is dropped), so the row totals always match the header
+// score. Columns extend to OT when the game went past regulation.
+function QuarterScores({ g, line }) {
+  const home = line.home || [], away = line.away || [];
+  const n = Math.max(home.length, away.length, 4);
+  const labels = Array.from({ length: n }, (_, i) =>
+    i < 4 ? String(i + 1) : (n - 4 > 1 ? `OT${i - 3}` : "OT"));
+  const sum = (a) => a.reduce((s, v) => s + (v || 0), 0);
+  const aT = sum(away), hT = sum(home);
+  const Row = ({ t, vals, tot, win }) => (
+    <tr style={{ borderBottom: `1px solid ${C.border}` }}>
+      <td style={{ ...tdStyle, textAlign: "left" }}>
+        <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <span style={{ width: 3, height: 13, background: t.color, flexShrink: 0 }} />
+          <b style={{ fontWeight: 500 }}>{t.abbr}</b>
+        </span>
+      </td>
+      {labels.map((_, i) => <td key={i} style={{ ...tdStyle, color: C.sec }}>{vals[i] ?? "–"}</td>)}
+      <td style={{ ...tdStyle, fontWeight: 700, color: win ? C.text : C.sec }}>{tot}</td>
+    </tr>
+  );
+  return (
+    <>
+      <SectionHead>By quarter</SectionHead>
+      <table style={{ width: "100%", borderCollapse: "collapse" }}>
+        <thead><tr>
+          <th style={{ ...thStyle, textAlign: "left" }}>Team</th>
+          {labels.map((l, i) => <th key={i} style={thStyle}>{l}</th>)}
+          <th style={thStyle}>T</th>
+        </tr></thead>
+        <tbody>
+          <Row t={g.away} vals={away} tot={aT} win={aT > hT} />
+          <Row t={g.home} vals={home} tot={hT} win={hT > aT} />
+        </tbody>
+      </table>
+    </>
+  );
+}
+
 // ============================================================================
 // Game page. Final score, each club's season form, and — for completed games
 // whose box detail is in the bundle (GAMEBOX) — a team box comparison and each
@@ -679,6 +774,8 @@ function GameDetail({ game: g, onBack, openTeam, openPlayer }) {
           {g.city && <span>{g.city}</span>}
           {g.net && <span>{g.net.replace("WNBA ", "")}</span>}
         </div>
+
+        {GAMELINE[g.id] && <QuarterScores g={g} line={GAMELINE[g.id]} />}
 
         {gb && (() => {
           const A = gb.box.away, H = gb.box.home;   // [pts,reb,ast,stl,blk,tov,fgm,fga,tpm,tpa,ftm,fta]

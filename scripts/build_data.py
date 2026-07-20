@@ -278,10 +278,34 @@ def build(csv_dir: Path, out_dir: Path):
                    "top": {"home": top_by[gid].get(hid, []), "away": top_by[gid].get(aid, [])}}
     print(f"  game box       {len(GB)} games with box detail")
 
+    # --- per-quarter scores (linescores): game_id -> {home:[q..], away:[q..]}.
+    # PRESERVED/merged from PREV so a transient fetch miss never drops a game.
+    # RECONCILIATION GATE: a game's quarters must sum to its final box score on
+    # BOTH sides or it's dropped — never render a quarter line that doesn't add
+    # up to the score we show ("a blank field beats a wrong one", CLAUDE.md).
+    GL = dict(PREV.get("GL") or {})
+    line_by = defaultdict(dict)                        # game_id -> home_away -> [q..]
+    for r in _opt("fact_game_line.csv"):
+        vals = [int(x) for x in (r.get("line") or "").split("|")
+                if x.strip().lstrip("-").isdigit()]
+        if vals: line_by[r["game_id"]][r["home_away"]] = vals
+    kept = dropped = 0
+    for gid, sides in line_by.items():
+        if "home" not in sides or "away" not in sides: continue
+        b = box.get(gid, {})
+        if b.get("home") == sum(sides["home"]) and b.get("away") == sum(sides["away"]):
+            GL[gid] = {"home": sides["home"], "away": sides["away"]}; kept += 1
+        else:
+            GL.pop(gid, None); dropped += 1     # doesn't reconcile — drop any stale copy too
+    if line_by:
+        print(f"  game lines     {kept} games reconciled, {dropped} dropped (sum≠final), {len(GL)} total")
+    else:
+        print(f"  game lines     {len(GL)} (preserved — no fact_game_line.csv)")
+
     payload = {"meta":{"totalGames":len(G), "completedGames":completed,
                        "leagueAvgPpg":round(sum(int(r["team_score"]) for r in tbox)/len(tbox),1),
                        "lastGame":max((r[1] for r in G if r[9]), default=None)},
-               "T":T,"S":S,"P":P,"G":G,"N":N,"BIO":BIO,"TEAM_BIO":TEAM_BIO,"SHOTS":SHOTS,"GB":GB}
+               "T":T,"S":S,"P":P,"G":G,"N":N,"BIO":BIO,"TEAM_BIO":TEAM_BIO,"SHOTS":SHOTS,"GB":GB,"GL":GL}
     dst = out_dir/"app-data.json"
     dst.write_text(json.dumps(payload, separators=(",",":")))
     kb = dst.stat().st_size/1024
