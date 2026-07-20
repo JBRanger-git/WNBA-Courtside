@@ -4,6 +4,12 @@ Free, ad-free, no-tracking WNBA statistics app. React + Vite, wrapped for Androi
 with Capacitor. Sibling project to the "WNBA Courtside" Power BI report — shares
 its data source and design system, but is **not** a port of it.
 
+> **New here / resuming?** Read [`docs/SESSION-STATUS.md`](docs/SESSION-STATUS.md)
+> first — it's the live handoff: where the Play Store release stands, the branch
+> workflow, and the local build recipe. Note the app now **fetches data at
+> runtime** (GitHub Pages), so the "Future: going live" section below is largely
+> **already implemented** — don't treat it as unbuilt.
+
 ---
 
 ## Non-negotiables
