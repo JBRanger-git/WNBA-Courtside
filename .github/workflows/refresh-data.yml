@@ -73,7 +73,7 @@ jobs:
 
       - name: Build and check invariants
         run: |
-          npm ci
+          npm ci --ignore-scripts   # icon tooling (sharp/@capacitor/assets) isn't needed to build the web app; skip its native build
           npm run build
           node scripts/smoke_refresh.mjs
 
