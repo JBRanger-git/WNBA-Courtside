@@ -1,170 +1,164 @@
 # Session status & handoff
 
 **Purpose:** resume point for a fresh Claude Code session. Read this + `CLAUDE.md`
-first. Last updated at the end of a long session that took the app from a
-shipped bug all the way to a self-updating, themeable app in Play Store closed
-testing.
-
-> This file now lives on the **default branch** so it survives dev-branch
-> restarts (it used to live only on a disposable dev branch).
+first. Lives on the **default branch** so it survives dev-branch restarts.
 
 ---
 
 ## TL;DR — where things are right now
 
 - **App:** WNBA Courtside (React + Vite + Capacitor → Android). Package
-  `uk.co.courtside.wnba`.
-- **Play Store:** in **Closed testing**. **v5 uploaded and in review.**
-- **Gate to production (personal account):** **12 testers** opted in for
-  **14 continuous days**, then *Apply for production* → Google review. (The live
-  count only exists in Play Console → Test and release → Testing → Closed
-  testing; it is not tracked in this repo.)
-- **Data is now fetched at runtime** (this was "Future: going live" in CLAUDE.md —
-  it's DONE). The daily GitHub Action refreshes data, publishes it to GitHub
-  Pages, and installed phones fetch + hot-swap it. **No rebuild needed for data.**
-- **One fix is merged but not yet shipped:** dark-mode shot-chart legibility
-  (#13). It rides in the next build (**v6**) whenever you rebuild.
+  `uk.co.courtside.wnba`. Contact `raiappsdev@gmail.com`.
+- **Play Store:** in **Closed testing**. **v5 (versionCode 5) is the last build
+  uploaded.** Everything below (v6 + v7 + history) is **merged to default but not
+  yet built/uploaded** — it all ships in the **next local AAB build (use
+  versionCode 7)**.
+- **Gate to production:** **12 testers** opted in for **14 continuous days**, then
+  *Apply for production*. Live count is only in Play Console → Test and release →
+  Testing → Closed testing (not tracked in this repo).
+- **Data is fetched at runtime** from GitHub Pages (`docs/app-data.json`), rebuilt
+  daily by GitHub Actions. No rebuild needed for *data* — only for app/UI changes.
+
+---
+
+## ⚠️ Read before doing any data work
+
+- **ESPN and GitHub Pages are BLOCKED from the Claude sandbox** (403 at the agent
+  proxy). Anything that fetches ESPN (`fetch_wnba.R`, `fetch_news.R`,
+  `fetch_lines.R`, `backfill_history.R`) or reads the live Pages JSON can only run
+  and be verified in **GitHub Actions**, never locally. Build the code, push, run
+  the workflow, read the logs. The app itself falls back to **bundled** data in
+  the sandbox (Pages unreachable), so local screenshots use bundled data.
+- **workflow_dispatch needs the workflow on the DEFAULT branch first.** To test a
+  brand-new workflow on a feature branch, add a temporary path-scoped `push`
+  trigger, verify, then remove it (that's how `backfill-history.yml` was tested).
+- **Claude feature branches drift from default over a long session.** Before
+  merging, check `git diff --stat <default>..<branch>` and make sure it doesn't
+  clobber `package.json` (icon tooling) or the `refresh-*.yml` workflows. If it
+  does, rebuild the branch on current default carrying only the intended files.
 
 ---
 
 ## Play Console facts
 
-- Developer account: **personal**, verified. Contact `raiappsdev@gmail.com`.
-- Store name: **WNBA Courtside**. Package `uk.co.courtside.wnba` (locked forever).
-- **Privacy policy URL:** https://jbranger-git.github.io/WNBA-Courtside/
-  (served by GitHub Pages from `docs/`; source `docs/privacy.html` + `PRIVACY.md`).
-- **Data Safety:** declared **no data collected / no data shared** (still true —
-  the runtime fetch pulls a public stats file and collects nothing).
-- **Version codes used so far: 1–5.** Next build must be **6** or higher
-  (source of truth: Play Console → Test and release → App bundle explorer).
-- **Keystore (UNRECOVERABLE — back it up):** `android/app/courtside-release.jks`,
-  wired via `android/keystore.properties` (both gitignored). Enrolled in **Play
-  App Signing**. Passwords live in the owner's password manager (not in git).
+- Developer account **personal**, verified. Store name **WNBA Courtside**.
+- **Privacy policy URL:** https://jbranger-git.github.io/WNBA-Courtside/ (Pages
+  from `docs/`; source `docs/privacy.html` + `PRIVACY.md`).
+- **Data Safety:** no data collected / shared (still true).
+- **Version codes used (uploaded): 1–5.** Next build must be **> 5**; use **7**.
+- **Keystore (UNRECOVERABLE — back it up):** `android/app/courtside-release.jks`
+  via `android/keystore.properties` (both gitignored). Enrolled in Play App Signing.
 
 ---
 
-## What was built (PRs on the default branch)
+## What shipped to default this session (all merged, awaiting a build)
 
 | PR | What |
 |----|------|
-| #2 | Privacy policy (`PRIVACY.md` + `docs/privacy.html`), release checklist (`docs/play-store-release.md`), store listing (`docs/play-store-listing.md`) |
-| #3 | **Fixed the shipped phone-frame bug** (fake bezel + "9:41 5G" status bar); scoreboard shows latest games; games are tappable → new game page |
-| #4 | **Fetch-at-runtime Phase 1** (`src/data/dataSource.js`, `loadRemote.js`; publish `app-data.json` to Pages) |
-| #5 | **Phase 2** — live in-session data swap, instant render |
-| #6/#7 | **§8 live score top-up** — pull recent finals from ESPN's live scoreboard so data is current-to-yesterday (in `fetch_wnba.R`) |
-| #8/#9 | Postponement handling — past-no-result games show **"Awaiting data"** |
-| #10 | **Box score + top performers** on the game page (`fact_game_box`/`fact_game_top` → `GB`) |
-| #11 | **Light/Dark theme** toggle on About (dark = "Report" palette) |
-| #12 | Skill `.claude/skills/no-shipped-device-frame/` (prevents the phone-frame bug recurring) |
-| #13 | Dark-mode shot-chart legibility fix (court renders in fixed light palette) |
+| #14 (v6) | Player profile **bio line** (data-derived) + **"Club"→"Team"** label; **Wire** = live clickable ESPN news (`fetch_news.R`); SESSION-STATUS onto default |
+| #15 (v7) | **Android back button**: navigate one level (search/detail pop), **"Exit Courtside?"** dialog on a top-level tab; **quarter-by-quarter scores** on the game page (`fetch_lines.R` → `GL`); **dark-mode fix** (root `color` so bare figures aren't invisible) |
+| #16 | Commit **icon tooling** (`sharp`, `@capacitor/assets`, Capacitor 6.2.1) into `package.json` so it stops colliding with pulls; workflows use `npm ci --ignore-scripts` |
+| #17 | **Historical seasons & career arcs (2020–present)** — player **Career** tab + team **History** tab, `backfill_history.R`, `PHIST`/`THIST` in `build_data.py`, `backfill-history.yml`; plus **polish** (standings #/STRK centred, 4-tab spacing, career-chart labels) |
+
+Earlier (previous session): #2 privacy/listing; #3 phone-frame fix + game page; #4/#5
+fetch-at-runtime; #6/#7 §8 live score top-up; #8/#9 postponements; #10 box score +
+top performers; #11 light/dark theme; #12 device-frame skill; #13 dark shot chart.
 
 ---
 
-## Architecture (current)
-
-**Data pipeline is fully automated end-to-end. No manual step for data.**
+## Data pipeline (current)
 
 ```
-Daily 11:00 UTC · refresh-data.yml (GitHub Actions, R + wehoop)
-  ├─ bulk load_wnba_player_box  ──┐
-  ├─ §8 live scoreboard top-up  ──┤ recent finals the bulk feed lacks
-  ▼                               ▼
-  scripts/build_data.py → src/data/app-data.json  (+ GB per-game box, postponement flag)
-  ▼
-  commit + copy to docs/app-data.json
-  ▼
-  GitHub Pages serves https://jbranger-git.github.io/WNBA-Courtside/app-data.json  (CORS *)
-  ▼
-  App on launch: applyCache() (instant) → refreshFromNetwork() → live swap (Phase 2)
-       fallback order: cached ▸ network ▸ bundled  (offline safe, no blank screen)
+Daily 11:00 UTC · refresh-data.yml  (fetch_wnba.R + fetch_news.R + fetch_lines.R → build_data.py)
+Weekly        · refresh-shots.yml   (fetch_shots.R → shot fingerprints)
+Manual        · backfill-history.yml (backfill_history.R → PHIST/THIST) — dispatch from Actions tab
+        │
+        ▼  build_data.py → src/data/app-data.json (+ copy to docs/app-data.json)
+        ▼  commit → GitHub Pages serves it → app fetches + hot-swaps (bundled fallback)
 ```
 
-- Data currency shows on the Today screen: **"Data updated through <date>"**.
-- `build_data.py` prints a **"postponed?"** line for any past game with no box score.
-- **Health check:** a daily Routine (`create_trigger`, cron `30 11 * * *`) fires
-  ~11:30 UTC to verify the refresh run and auto-fix a failed pipeline. It is bound
-  to a **specific session id**, so on a NEW session it must be **re-armed** (delete
-  the stale trigger, create a fresh one bound to the current session). Ask Claude
-  to "re-arm the daily data-refresh health check."
-
-> **Note on ESPN access from a Claude session:** ESPN's API hosts
-> (`site.api.espn.com`, etc.) are **blocked by the sandbox network policy** — a
-> `403` at the agent proxy. Anything that fetches ESPN (news, linescores, the R
-> `wehoop` pulls) can only run and be verified inside **GitHub Actions**, never
-> locally. Build the code, push, and verify via a workflow run.
+- **build_data.py PRESERVES slow data** (bio, news, shots, **PHIST/THIST**) from the
+  previous snapshot when its source CSV is absent. So the daily refresh keeps the
+  history and just updates the current-season numbers; the app appends the **live
+  current season** as each career arc's / team timeline's last point.
+- **Playoff finishes** (team History): champion + runner-up from each season's final
+  game; semifinalists from the playoff calendar (robust to the 2020/2021 vs 2022+
+  formats and byes). Validated: champions match reality 2020–2024.
+- **Health check:** a daily Routine (~11:30 UTC) verifies the refresh run. It is
+  bound to a **specific session id**, so on a NEW session it must be **re-armed**
+  (delete the stale trigger, create a fresh one bound to the current session). Ask
+  Claude to "re-arm the daily data-refresh health check."
 
 ---
 
 ## Branch & workflow conventions
 
 - **Default branch:** `claude/wnba-android-app-4d4egw` (base for every PR).
-- **Working branch:** a per-session Claude branch (e.g.
-  `claude/wnba-courtside-continuation-r8t6ef`) started fresh off default for each
-  change → PR → **squash-merge to default**. (An earlier convention used a single
-  reusable `claude/play-store-deployment-4cv08q` dev branch restarted each time;
-  either pattern works as long as the base is default and merges are squashes.)
-- **Commit trailers:** end messages with
-  `Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>` and the Claude-Session line.
-- **Tweak-and-test loop (established):** Claude changes code → renders a
-  screenshot + pushes to the working branch → **you** approve (screenshots or
-  `npm run dev`) → Claude merges to default → **you** rebuild + upload when you
-  want it live. Nothing reaches testers until you rebuild the AAB.
+- **Working branch:** a per-session Claude branch started fresh off default for each
+  change → PR → **squash-merge to default**. Verify UI with a Playwright screenshot
+  before merging; data changes verify via a GitHub Actions run.
+- Commit trailers: `Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>` + the
+  Claude-Session line.
 
 ---
 
-## Local build recipe (the only manual part left, all on your machine)
+## Local build recipe — the next AAB (v7), on your machine
+
+Everything is on default now, and the icon tooling is committed, so pulls should be
+clean (no more `package.json` collisions).
 
 ```fish
 cd ~/WNBA-Courtside
+git checkout claude/wnba-android-app-4d4egw
 git pull origin claude/wnba-android-app-4d4egw
-grep -n versionCode android/app/build.gradle            # bump > last uploaded (→ 6)
-sed -i 's/versionCode 5/versionCode 6/' android/app/build.gradle
-npm run sync                                            # web build + cap sync
-cd android && ./gradlew clean bundleRelease             # signed AAB
-jarsigner -verify app/build/outputs/bundle/release/app-release.aab   # "jar verified."
-# upload app/build/outputs/bundle/release/app-release.aab to Closed testing
+# if a stray lockfile diff blocks the pull: git checkout -- package-lock.json && git pull
+
+archlinux-java set java-17-openjdk        # JDK 17 required (not 21+); skip if already default
+set -x ANDROID_HOME ~/Android/Sdk
+set -x PATH $ANDROID_HOME/platform-tools $PATH
+
+sed -i 's/versionCode [0-9]*/versionCode 7/' android/app/build.gradle
+npm install --ignore-scripts              # skips native sharp build; app build doesn't need it
+npm run sync                              # web build + cap sync (registers @capacitor/app)
+cd android && ./gradlew clean bundleRelease
+jarsigner -verify app/build/outputs/bundle/release/app-release.aab   # expect "jar verified."
+# → upload app/build/outputs/bundle/release/app-release.aab to Play Console → Closed testing
 ```
 
-Environment gotchas (CachyOS/Arch):
-- **JDK 17** required (`archlinux-java set java-17-openjdk`), not 21+.
-- `ANDROID_HOME=~/Android/Sdk`; **API 35** platform installed; `targetSdkVersion=35`
-  in `android/variables.gradle` + `android.suppressUnsupportedCompileSdk=35`.
-- **npm blocks install scripts** here (sharp, rsvg) — that's why launcher icon /
-  screenshots were generated outside `@capacitor/assets`. The custom C-mark
-  launcher icons are already dropped into `android/app/src/main/res/mipmap-*/`.
-- `android/` is gitignored & disposable; regenerate with `npx cap add android` if lost.
+On-device smoke test (things only confirmable on a device): **hardware back button**
+(levels + exit dialog), a **Wire headline tap** (opens the browser), a completed
+game's **By quarter** table, and a player's **Career** / team's **History** tab.
+
+Env gotchas (CachyOS/Arch): JDK 17 not 21+; API 35 platform + `targetSdkVersion=35`;
+custom launcher icons already in `android/app/src/main/res/mipmap-*/`; `android/` is
+gitignored & disposable (regenerate with `npx cap add android` if lost).
 
 ---
 
 ## Outstanding / next steps
 
-1. **Testers:** get **12** opted into the closed test → run **14 days** → *Apply
-   for production*. This is the launch-gating item.
-2. **v6 rebuild** (optional, when ready): carries the dark-fingerprint fix (#13)
-   and every app-side feature (#3–#11). No urgency; v5 is fine for testing.
-3. **Jul 16 DAL@NY** postponed game self-heals when ESPN reschedules it (shows
-   "Awaiting data" until then). Nothing to do.
-4. **Future ideas (in progress / not started):**
-   - Player profile bio line (data-derived) — DONE this session.
-   - "Team" vs "Club" wording on the profile — DONE this session.
-   - Quarter-by-quarter scores on the game page — needs a raw-ESPN linescore
-     fetch in R (not in `player_box`); CI-only to verify.
-   - Wire → live ESPN news with clickable links — the current Wire is frozen
-     (no live fetch, no URLs); needs a `fetch_news.R` step; CI-only to verify.
-   - Team identity/pace panel; full shot-coordinate scatter; wire §8 into
-     `refresh-shots.yml`; copy `no-shipped-device-frame` skill to `~/.claude/skills/`.
+1. **Build & upload v7** (versionCode 7) — carries everything above.
+2. **Testers:** 12 opted in → 14 continuous days → *Apply for production*. Launch gate.
+3. **Backlog not yet done:** full shot-coordinate scatter (pbp has `coordinate_x/y`);
+   team identity/pace panel (needs a team-box/pbp fetch); college & honours on player
+   profiles (`wikidata_bio.py` written, unrun — fills the "out of {college}" slot that's
+   already coded); wire §8 into `refresh-shots.yml`; copy `no-shipped-device-frame`
+   skill to `~/.claude/skills/`.
+4. **Playoff round labels** are exact for the modern bracket; a bye-year team that took a
+   first-round bye and then lost could still under-state in 2020/2021 (champions + finalists
+   + semifinalists are correct every year). Refine only if it matters.
 
 ---
 
 ## Key files
 
-- `src/App.jsx` — the whole app (~1,600 lines; screens are clean function
-  boundaries). Theme tokens `LIGHT`/`DARK` + `applyTheme()`; data via `getData()`.
-- `src/data/{dataSource,loadRemote}.js` — runtime data layer.
-- `scripts/fetch_wnba.R` — daily R fetch (bulk + §8 top-up + per-game box).
-- `scripts/build_data.py` — CSV → `app-data.json` (+ GB, postponement flag).
-- `.github/workflows/refresh-data.yml` — the daily automation (+ Pages publish).
-- `docs/` — privacy (`privacy.html`, `PRIVACY.md`), release/listing guides,
-  `going-live-fetch-at-runtime.md` (now implemented), this file.
-- `.claude/skills/no-shipped-device-frame/` — guard against the phone-frame bug.
+- `src/App.jsx` — the whole app (~1,900 lines). Screens are clean function boundaries.
+  Theme `LIGHT`/`DARK` + `applyTheme()`; data via `getData()`; `computeTables()` builds
+  `PHIST`/`THIST` etc.
+- `src/data/{dataSource,loadRemote}.js` — runtime data layer (cached ▸ network ▸ bundled).
+- `scripts/fetch_wnba.R` · `fetch_news.R` · `fetch_lines.R` · `fetch_shots.R` ·
+  `backfill_history.R` — the R fetches (all ESPN-backed → CI-only).
+- `scripts/build_data.py` — CSV → `app-data.json`. The one place numbers are shaped.
+- `.github/workflows/` — `refresh-data.yml` (daily), `refresh-shots.yml` (weekly),
+  `backfill-history.yml` (manual).
 - `CLAUDE.md` — project bible (data gotchas, imagery/legal boundaries, design system).
