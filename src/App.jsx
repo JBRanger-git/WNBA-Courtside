@@ -38,12 +38,16 @@ function computeTables() {
   SHOTS = RAW.SHOTS || { LG: null, P: {} };   // null when fact_pbp is absent
   GAMEBOX = RAW.GB || {};                      // per-game box detail, keyed by game id (completed games)
   GAMELINE = RAW.GL || {};                     // per-quarter scores, keyed by game id (reconciled to final)
-  TEAMS = RAW.T.map(([id, abbr, name, shortName, color, conf]) => ({ id, abbr, name, shortName, color, conf, bio: TEAM_BIO[id] || {} }));
+  // Season-by-season history, keyed by id. Absent until the historical backfill
+  // runs (scripts/backfill_history.R) — every history view degrades to "not yet".
+  const PHIST = RAW.PHIST || {}, THIST = RAW.THIST || {};
+  const hist = (m, id) => m[id] || m[String(id)] || [];
+  TEAMS = RAW.T.map(([id, abbr, name, shortName, color, conf]) => ({ id, abbr, name, shortName, color, conf, bio: TEAM_BIO[id] || {}, hist: hist(THIST, id) }));
   TEAM = Object.fromEntries(TEAMS.map(t => [t.id, t]));
   STANDINGS = RAW.S.map(([id, w, l, pct, pf, pa, diff, streak, l10, home, road]) =>
     ({ id, w, l, pct, pf, pa, diff, streak, l10, home, road, ...TEAM[id] }));
   PLAYERS = RAW.P.map(([id, name, teamId, pos, gp, mpg, ppg, rpg, apg, spg, bpg, topg, fg, tp, ft, ts, usg, tpa]) =>
-    ({ id, name, teamId, pos, gp, mpg, ppg, rpg, apg, spg, bpg, topg, fg, tp, ft, ts, usg, tpa, team: TEAM[teamId], bio: BIO[id] || {} }));
+    ({ id, name, teamId, pos, gp, mpg, ppg, rpg, apg, spg, bpg, topg, fg, tp, ft, ts, usg, tpa, team: TEAM[teamId], bio: BIO[id] || {}, hist: hist(PHIST, id) }));
   GAMES = RAW.G.map(([id, date, homeId, awayId, hs, as_, net, tier, city, done]) =>
     ({ id, date, homeId, awayId, hs, as: as_, net, tier, city, done: !!done, home: TEAM[homeId], away: TEAM[awayId] }));
   GAME = Object.fromEntries(GAMES.map(g => [g.id, g]));
@@ -473,15 +477,15 @@ function HomeScreen({ open, onSearch }) {
         </div>
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead><tr>
-            <th style={{ ...thStyle, textAlign: "left", width: 16 }}></th>
+            <th style={{ ...thStyle, textAlign: "center", width: 22 }}>#</th>
             <th style={{ ...thStyle, textAlign: "left" }}>Team</th>
             <th style={thStyle}>W</th><th style={thStyle}>L</th><th style={thStyle}>PCT</th>
-            <th style={thStyle}>GB</th><th style={thStyle}>DIFF</th><th style={thStyle}>STRK</th>
+            <th style={thStyle}>GB</th><th style={thStyle}>DIFF</th><th style={{ ...thStyle, textAlign: "center" }}>STRK</th>
           </tr></thead>
           <tbody>
             {rows.map((s, i) => (
               <tr key={s.id} onClick={() => open("team", s.id)} style={{ background: i % 2 ? C.stripe : "transparent", cursor: "pointer", borderBottom: (conf === "All" && i === 7) ? `2px dashed ${C.accent}` : `1px solid ${C.border}` }}>
-                <td style={{ ...tdStyle, textAlign: "left", color: i < 8 ? C.accent : C.mute, fontWeight: 700, fontSize: 10 }}>{i + 1}</td>
+                <td style={{ ...tdStyle, textAlign: "center", color: i < 8 ? C.accent : C.mute, fontWeight: 700, fontSize: 10 }}>{i + 1}</td>
                 <td style={{ ...tdStyle, textAlign: "left" }}>
                   <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
                     <span style={{ width: 3, height: 13, background: s.color, flexShrink: 0 }} />
@@ -492,7 +496,7 @@ function HomeScreen({ open, onSearch }) {
                 <td style={tdStyle}>{s.pct.toFixed(3).replace(/^0/, "")}</td>
                 <td style={{ ...tdStyle, color: C.sec }}>{s.gb === 0 ? "–" : s.gb}</td>
                 <td style={{ ...tdStyle, color: s.diff > 0 ? C.good : C.bad }}>{s.diff > 0 ? "+" : ""}{s.diff}</td>
-                <td style={{ ...tdStyle, fontWeight: 700, color: s.streak[0] === "W" ? C.good : C.bad }}>{s.streak}</td>
+                <td style={{ ...tdStyle, textAlign: "center", fontWeight: 700, color: s.streak[0] === "W" ? C.good : C.bad }}>{s.streak}</td>
               </tr>
             ))}
           </tbody>
@@ -872,12 +876,15 @@ function GameDetail({ game: g, onBack, openTeam, openPlayer }) {
 }
 
 function SubTabs({ tabs, active, set }) {
+  // Four tabs of long words (Percentiles / Fingerprint) crowd at 10.5px, so tighten
+  // the type and kill wrapping once there are 4+.
+  const tight = tabs.length >= 4;
   return (
     <div style={{ display: "flex", borderBottom: `1px solid ${C.border}`, background: C.visual }}>
       {tabs.map(t => (
         <button key={t} onClick={() => set(t)} style={{
-          flex: 1, border: "none", background: "none", padding: "9px 0", cursor: "pointer",
-          fontSize: 10.5, fontWeight: 700, letterSpacing: .9, textTransform: "uppercase",
+          flex: 1, border: "none", background: "none", padding: "9px 2px", cursor: "pointer", whiteSpace: "nowrap",
+          fontSize: tight ? 9.5 : 10.5, fontWeight: 700, letterSpacing: tight ? .2 : .9, textTransform: "uppercase",
           color: active === t ? C.text : C.mute, borderBottom: active === t ? `2.5px solid ${C.accent}` : "2.5px solid transparent", fontFamily: BODY,
         }}>{t}</button>
       ))}
@@ -899,7 +906,7 @@ function TeamDetail({ team, onBack, openPlayer }) {
           <div style={{ fontFamily: DISPLAY, fontSize: 21, fontWeight: 700, ...agate }}>{s.w}–{s.l}</div>
           <div style={{ fontSize: 10, fontWeight: 700, color: s.streak[0] === "W" ? C.good : C.bad, ...agate }}>{s.streak}</div>
         </div>} />
-      <SubTabs tabs={["Overview", "Roster", "Games"]} active={sub} set={setSub} />
+      <SubTabs tabs={["Overview", "Roster", "Games", ...(team.hist?.length ? ["History"] : [])]} active={sub} set={setSub} />
       <div className="noscroll" style={{ flex: 1, overflowY: "auto", padding: "0 14px 12px" }}>
         {sub === "Overview" && <>
           <TeamBio team={team} />
@@ -940,6 +947,7 @@ function TeamDetail({ team, onBack, openPlayer }) {
           </table>
         </>}
         {sub === "Games" && <TeamSeason team={team} />}
+        {sub === "History" && <TeamHistory team={team} />}
       </div>
     </>
   );
@@ -985,7 +993,7 @@ function PlayerDetail({ player: p, onBack, openTeam }) {
           <div style={{ fontFamily: DISPLAY, fontSize: 21, fontWeight: 700, ...agate }}>{p.ppg}</div>
           <div style={{ fontSize: 8.5, color: C.sec, letterSpacing: .8, fontWeight: 700 }}>PPG</div>
         </div>} />
-      <SubTabs tabs={["Profile", "Percentiles", "Fingerprint"]} active={sub} set={setSub} />
+      <SubTabs tabs={["Profile", "Percentiles", "Fingerprint", ...(p.hist?.length ? ["Career"] : [])]} active={sub} set={setSub} />
       <div className="noscroll" style={{ flex: 1, overflowY: "auto", padding: "0 14px 12px" }}>
         {sub === "Profile" && <>
           <BioStrip p={p} />
@@ -1027,6 +1035,7 @@ function PlayerDetail({ player: p, onBack, openTeam }) {
           </div>
         </>}
         {sub === "Fingerprint" && <ShotFingerprint p={p} />}
+        {sub === "Career" && <CareerArc p={p} />}
       </div>
     </>
   );
@@ -1289,6 +1298,142 @@ function TeamSeason({ team }) {
   );
 }
 
+
+// ---- CAREER ARC (player, season-by-season) ----------------------------------
+// A points-per-game trajectory (the "arc") over a career, plus the exact numbers
+// in an agate table. Data lands from the historical backfill; until then every
+// history view degrades to an explicit "not yet". The 2020 Bradenton bubble is
+// flagged so a 22-game year isn't misread as a full season.
+function CareerArc({ p }) {
+  const prior = p.hist || [];
+  if (!prior.length) return (
+    <div style={{ padding: "34px 10px", textAlign: "center" }}>
+      <div style={{ fontFamily: DISPLAY, fontSize: 14, letterSpacing: 1, textTransform: "uppercase", color: C.sec }}>No career history yet</div>
+      <div style={{ fontSize: 11.5, color: C.mute, marginTop: 6, lineHeight: 1.6 }}>Season-by-season history lands once the historical backfill runs.</div>
+    </div>
+  );
+  // Append the live current season so the arc's last point is always today's
+  // numbers (build_data stores only completed past seasons).
+  const CUR = RAW.meta.season || (RAW.meta.lastGame ? +String(RAW.meta.lastGame).slice(0, 4) : 0);
+  const h = CUR ? [...prior, { yr: CUR, tm: p.team.abbr, gp: p.gp, ppg: p.ppg, rpg: p.rpg, apg: p.apg, ts: p.ts }] : prior;
+  const vals = h.map(s => s.ppg);
+  const lo = Math.min(...vals), hi = Math.max(...vals), pad = Math.max((hi - lo) * 0.2, 2);
+  const yMin = Math.max(0, lo - pad), yMax = hi + pad;
+  const W = 300, H = 96, mL = 13, mR = 13, mT = 16, mB = 15;
+  const X = i => mL + (W - mL - mR) * (h.length < 2 ? 0.5 : i / (h.length - 1));
+  const Y = v => mT + (H - mT - mB) * (1 - (v - yMin) / (yMax - yMin || 1));
+  const pts = h.map((s, i) => [X(i), Y(s.ppg)]);
+  const line = "M " + pts.map(pt => pt.map(n => n.toFixed(1)).join(" ")).join(" L ");
+  const area = line + ` L ${pts[pts.length - 1][0].toFixed(1)} ${H - mB} L ${pts[0][0].toFixed(1)} ${H - mB} Z`;
+  const best = h.reduce((a, b) => b.ppg > a.ppg ? b : a);
+  return (
+    <>
+      <SectionHead action="PPG by season">Career arc</SectionHead>
+      <svg viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", display: "block", marginTop: 4 }} role="img" aria-label={`${p.name} points per game by season`}>
+        <path d={area} fill={C.blue} fillOpacity={0.08} />
+        <path d={line} fill="none" stroke={C.blue} strokeWidth={1.6} strokeLinejoin="round" strokeLinecap="round" />
+        {pts.map(([x, y], i) => {
+          // Keep the end labels from clipping: anchor the first to its start, the
+          // last to its end, the rest centred.
+          const anchor = i === 0 ? "start" : i === pts.length - 1 ? "end" : "middle";
+          return (
+            <g key={i}>
+              <circle cx={x} cy={y} r={2.4} fill={h[i].yr === best.yr ? C.accent : C.blue} />
+              <text x={x} y={y - 4.5} textAnchor={anchor} style={{ fontFamily: DISPLAY, fontSize: 8, fontWeight: 600, fill: C.text, fontVariantNumeric: "tabular-nums" }}>{h[i].ppg}</text>
+              <text x={x} y={H - 4} textAnchor={anchor} style={{ fontSize: 6.5, fill: C.mute, fontVariantNumeric: "tabular-nums" }}>{String(h[i].yr).slice(2)}{h[i].bubble ? "*" : ""}</text>
+            </g>
+          );
+        })}
+      </svg>
+      <div style={{ display: "flex", borderTop: `1px solid ${C.border}`, borderBottom: `1px solid ${C.border}`, marginTop: 6 }}>
+        {[["Seasons", h.length], ["Career high", best.ppg], ["Best year", best.yr]].map(([k, v], i) => (
+          <div key={k} style={{ flex: 1, padding: "8px 10px", borderRight: i < 2 ? `1px solid ${C.border}` : "none" }}>
+            <div style={{ fontSize: 8, letterSpacing: .8, textTransform: "uppercase", color: C.sec, fontWeight: 700 }}>{k}</div>
+            <div style={{ fontFamily: DISPLAY, fontSize: 16, fontWeight: 600, color: C.text, ...agate }}>{v}</div>
+          </div>
+        ))}
+      </div>
+      <SectionHead action="per game">By season</SectionHead>
+      <table style={{ width: "100%", borderCollapse: "collapse" }}>
+        <thead><tr>
+          <th style={{ ...thStyle, textAlign: "left" }}>Season</th>
+          <th style={{ ...thStyle, textAlign: "left" }}>Tm</th>
+          {["GP", "PPG", "RPG", "APG", "TS%"].map(l => <th key={l} style={thStyle}>{l}</th>)}
+        </tr></thead>
+        <tbody>
+          {h.slice().reverse().map((s, i) => (
+            <tr key={s.yr} style={{ background: i % 2 ? C.stripe : "transparent", borderBottom: `1px solid ${C.border}` }}>
+              <td style={{ ...tdStyle, textAlign: "left" }}>{s.yr}{s.bubble ? <span style={{ color: C.accent }}> *</span> : ""}</td>
+              <td style={{ ...tdStyle, textAlign: "left", color: C.sec }}>{s.tm}</td>
+              <td style={tdStyle}>{s.gp}</td>
+              <td style={{ ...tdStyle, fontWeight: s.yr === best.yr ? 700 : 400 }}>{s.ppg}</td>
+              <td style={tdStyle}>{s.rpg}</td><td style={tdStyle}>{s.apg}</td><td style={tdStyle}>{s.ts}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {h.some(s => s.bubble) && (
+        <div style={{ fontSize: 9, color: C.mute, paddingTop: 7, lineHeight: 1.5 }}>
+          <span style={{ color: C.accent, fontWeight: 700 }}>*</span> 2020 was the 22-game Bradenton “bubble” season — a shortened schedule, flagged so it isn’t read as a full year.
+        </div>
+      )}
+    </>
+  );
+}
+
+// ---- TEAM HISTORY (season-by-season) ----------------------------------------
+function TeamHistory({ team }) {
+  const prior = team.hist || [];
+  if (!prior.length) return (
+    <div style={{ padding: "34px 10px", textAlign: "center" }}>
+      <div style={{ fontFamily: DISPLAY, fontSize: 14, letterSpacing: 1, textTransform: "uppercase", color: C.sec }}>No season history yet</div>
+      <div style={{ fontSize: 11.5, color: C.mute, marginTop: 6, lineHeight: 1.6 }}>Past seasons appear once the historical backfill runs.</div>
+    </div>
+  );
+  // Append the live current season from the standings so the timeline ends on today.
+  const CUR = RAW.meta.season || (RAW.meta.lastGame ? +String(RAW.meta.lastGame).slice(0, 4) : 0);
+  const st = STANDINGS.find(x => x.id === team.id);
+  const h = (CUR && st) ? [...prior, { yr: CUR, w: st.w, l: st.l, pct: st.pct, pf: st.pf, pa: st.pa, note: "" }] : prior;
+  const maxPct = Math.max(...h.map(s => s.pct), 0.5);
+  return (
+    <>
+      <SectionHead action="win % by season">Season history</SectionHead>
+      <div style={{ display: "flex", alignItems: "flex-end", gap: 6, height: 100, padding: "10px 2px 0", borderBottom: `1px solid ${C.border}` }}>
+        {h.map(s => (
+          <div key={s.yr} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-end", height: "100%" }}>
+            <span style={{ fontFamily: DISPLAY, fontSize: 8.5, fontWeight: 600, color: C.text, ...agate }}>{s.w}–{s.l}</span>
+            <div style={{ width: "70%", background: team.color, height: `${(s.pct / maxPct) * 82}%`, minHeight: 2, marginTop: 2, borderRadius: "1px 1px 0 0" }} />
+            <span style={{ fontSize: 7, color: C.mute, marginTop: 3, ...agate }}>{String(s.yr).slice(2)}{s.bubble ? "*" : ""}</span>
+          </div>
+        ))}
+      </div>
+      <SectionHead action="regular season">By season</SectionHead>
+      <table style={{ width: "100%", borderCollapse: "collapse" }}>
+        <thead><tr>
+          <th style={{ ...thStyle, textAlign: "left" }}>Season</th>
+          <th style={thStyle}>W–L</th><th style={thStyle}>PCT</th><th style={thStyle}>PF</th><th style={thStyle}>PA</th>
+          <th style={{ ...thStyle, textAlign: "right" }}>Result</th>
+        </tr></thead>
+        <tbody>
+          {h.slice().reverse().map((s, i) => (
+            <tr key={s.yr} style={{ background: i % 2 ? C.stripe : "transparent", borderBottom: `1px solid ${C.border}` }}>
+              <td style={{ ...tdStyle, textAlign: "left" }}>{s.yr}{s.bubble ? <span style={{ color: C.accent }}> *</span> : ""}</td>
+              <td style={{ ...tdStyle, fontWeight: 700 }}>{s.w}–{s.l}</td>
+              <td style={tdStyle}>{s.pct.toFixed(3).replace(/^0/, "")}</td>
+              <td style={tdStyle}>{s.pf}</td><td style={tdStyle}>{s.pa}</td>
+              <td style={{ ...tdStyle, color: s.note ? C.text : C.mute, fontWeight: s.note && /Champ/i.test(s.note) ? 700 : 400 }}>{s.note || "—"}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {h.some(s => s.bubble) && (
+        <div style={{ fontSize: 9, color: C.mute, paddingTop: 7, lineHeight: 1.5 }}>
+          <span style={{ color: C.accent, fontWeight: 700 }}>*</span> 2020 was the 22-game Bradenton “bubble” season.
+        </div>
+      )}
+    </>
+  );
+}
 
 // ---- SHOT FINGERPRINT -------------------------------------------------------
 // Zones are spatial, so they're drawn on a court, not a radar. A radar's spoke

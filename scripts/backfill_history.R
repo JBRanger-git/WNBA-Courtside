@@ -165,9 +165,127 @@ fact_player_season |>
   print(n = Inf)
 
 # =============================================================================
-write_csv(dim_season,         file.path(OUT, "dim_season.csv"))
-write_csv(dim_team_season,    file.path(OUT, "dim_team_season.csv"))
-write_csv(fact_player_season, file.path(OUT, "fact_player_season.csv"))
+# fact_team_season — regular-season record per team per season (W-L, PF, PA).
+# From team_box (reliable for COMPLETED seasons; the current season is owned by
+# the daily pipeline and dropped downstream, so a lagging team_box can't hurt).
+# =============================================================================
+# Read a column by the first matching candidate name from THIS frame (ESPN's
+# team_box column names drift between seasons).
+getcol <- function(df, cands, default = NA) {
+  for (n in cands) if (n %in% names(df)) return(df[[n]])
+  rep(default, nrow(df))
+}
+reg <- team_box |> filter(season_type == 2)
+tb2 <- tibble(
+  season  = reg$season,
+  team_id = as.character(reg$team_id),
+  ts = suppressWarnings(as.numeric(getcol(reg, "team_score"))),
+  os = suppressWarnings(as.numeric(getcol(reg, c("opponent_team_score", "opp_team_score"))))
+) |> filter(!is.na(ts), !is.na(os))
 
-message("\nDone. Note: dim_teams (current snapshot) is now ONLY valid for the ",
-        "latest season — point historical views at dim_team_season instead.")
+fact_team_season <- tb2 |>
+  group_by(season, team_id) |>
+  summarise(
+    wins        = sum(ts > os),
+    losses      = sum(ts < os),
+    ppg_for     = round(mean(ts), 1),
+    ppg_against = round(mean(os), 1),
+    .groups = "drop"
+  ) |>
+  mutate(win_pct = round(wins / pmax(wins + losses, 1), 3)) |>
+  select(season, team_id, wins, losses, win_pct, ppg_for, ppg_against)
+
+validate_materialised(fact_team_season, "fact_team_season", c("season", "team_id"))
+
+# =============================================================================
+# fact_team_playoff — a finish label per team per season, derived from playoff
+# games (season_type == 3). Rounds are inferred from SERIES WON: a team that
+# wins N playoff series has reached round N+1. In the modern 3-round bracket that
+# maps 0/1/2 series won -> First round / Semifinals / Finals; the winner of the
+# season's final game is the Champion. Coarser but reliable years still yield a
+# correct champion/runner-up. Everything is logged so the derivation can be
+# eyeballed in CI; teams with no playoff games simply get no row (app shows "—").
+# =============================================================================
+fact_team_playoff <- tryCatch({
+  pos <- team_box |> filter(season_type == 3)
+  if (nrow(pos) == 0) stop("no playoff games in range")
+  po <- tibble(
+    season = pos$season,
+    tid = as.character(pos$team_id),
+    oid = as.character(getcol(pos, c("opponent_team_id", "opp_team_id"))),
+    ts  = suppressWarnings(as.numeric(getcol(pos, "team_score"))),
+    os  = suppressWarnings(as.numeric(getcol(pos, c("opponent_team_score", "opp_team_score")))),
+    gd  = as.character(getcol(pos, "game_date"))
+  ) |> filter(!is.na(ts), !is.na(os))
+
+  # series won: majority of games vs a given opponent within a season
+  series <- po |>
+    group_by(season, tid, oid) |>
+    summarise(w = sum(ts > os), g = n(), .groups = "drop") |>
+    mutate(won_series = w > (g - w))
+  swon <- series |> group_by(season, tid) |>
+    summarise(series_won = sum(won_series), .groups = "drop")
+
+  # Champion & runner-up = winner & loser of each season's LAST playoff game.
+  # Taking the finalists straight from the final game is reliable every year
+  # (unlike series-won, which undercounts in bye years like 2020/2021). Series
+  # won then splits the rest: 1 series won -> Semifinals, 0 -> First round
+  # (exact for the modern no-bye bracket; a bye-year team that got a first-round
+  # bye and lost its opener can under-label, but the champion/finalist are right).
+  last_games <- po |> group_by(season) |> filter(gd == max(gd)) |> ungroup()
+  champ  <- last_games |> filter(ts > os) |> group_by(season) |> slice_head(n = 1) |>
+    ungroup() |> transmute(season, champ_tid = tid)
+  runner <- last_games |> filter(os > ts) |> group_by(season) |> slice_head(n = 1) |>
+    ungroup() |> transmute(season, runner_tid = tid)
+
+  # Semifinalists (beaten in the round before the final): among non-finalist
+  # playoff teams, the two whose LAST game is latest. Rounds are chronologically
+  # separated, so this is robust across the differing 2020/2021 vs 2022+ formats
+  # and immune to byes (series-won undercounts a team that got a first-round bye).
+  last_dates <- po |> group_by(season, tid) |> summarise(last_gd = max(gd), .groups = "drop")
+  finalists  <- dplyr::bind_rows(dplyr::rename(champ, tid = champ_tid),
+                                 dplyr::rename(runner, tid = runner_tid))
+  semis <- last_dates |>
+    dplyr::anti_join(finalists, by = c("season", "tid")) |>
+    group_by(season) |> slice_max(last_gd, n = 2, with_ties = FALSE) |> ungroup() |>
+    transmute(season, tid, is_semi = TRUE)
+
+  swon |>
+    left_join(champ,  by = "season") |>
+    left_join(runner, by = "season") |>
+    left_join(semis,  by = c("season", "tid")) |>
+    mutate(result = dplyr::case_when(
+      tid == champ_tid  ~ "Champions",
+      tid == runner_tid ~ "Finals",
+      !is.na(is_semi)   ~ "Semifinals",
+      TRUE              ~ "First round"
+    )) |>
+    transmute(season, team_id = tid, result)
+}, error = function(e) {
+  message("  playoff finishes skipped: ", conditionMessage(e))
+  tibble(season = integer(), team_id = character(), result = character())
+})
+
+message("Playoff finishes by season:")
+if (nrow(fact_team_playoff) > 0) {
+  abbr_lookup <- dim_team_season |>
+    transmute(season, team_id = as.character(team_id), team_abbreviation) |>
+    distinct()
+  fact_team_playoff |>
+    left_join(abbr_lookup, by = c("season", "team_id")) |>
+    arrange(season, result) |> print(n = Inf)
+}
+
+# =============================================================================
+# History-specific filenames so the one-off backfill NEVER clobbers the daily
+# single-season CSVs (fetch_wnba.R owns fact_player_season.csv; build_data.py
+# reads *_hist.csv for the multi-season history and preserves it between runs).
+write_csv(dim_season,          file.path(OUT, "dim_season.csv"))
+write_csv(dim_team_season,     file.path(OUT, "dim_team_season.csv"))
+write_csv(fact_player_season,  file.path(OUT, "fact_player_season_hist.csv"))
+write_csv(fact_team_season,    file.path(OUT, "fact_team_season.csv"))
+write_csv(fact_team_playoff,   file.path(OUT, "fact_team_playoff.csv"))
+
+message("\nDone. History written to *_hist.csv / fact_team_season.csv / ",
+        "fact_team_playoff.csv. dim_teams (current snapshot) stays valid only ",
+        "for the latest season — historical views use dim_team_season.")
