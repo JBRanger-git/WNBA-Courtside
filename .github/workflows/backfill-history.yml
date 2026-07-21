@@ -1,0 +1,92 @@
+name: Backfill WNBA history
+
+# One-off / occasional: pulls 2020–present season history (career arcs + team
+# season records + playoff finishes) via scripts/backfill_history.R, rebuilds the
+# snapshot, and commits it. Past seasons don't change, so this is NOT scheduled —
+# run it from the Actions tab when you want to (re)build history. The daily
+# refresh then PRESERVES this history (build_data.py carries PHIST/THIST forward).
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: backfill-history
+  cancel-in-progress: false
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up R
+        uses: r-lib/actions/setup-r@v2
+        with:
+          use-public-rspm: true
+
+      - name: Cache R packages
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.R_LIBS_USER }}
+          key: r-wehoop-${{ runner.os }}-v2
+
+      - name: Install R packages
+        shell: Rscript {0}
+        # arrow: wehoop's integer64 IDs only materialise via the parquet path.
+        # tidyr is used by the historical backfill.
+        run: |
+          pkgs <- c("wehoop", "dplyr", "tidyr", "readr", "arrow", "bit64", "jsonlite")
+          need <- pkgs[!vapply(pkgs, requireNamespace, logical(1), quietly = TRUE)]
+          if (length(need)) install.packages(need)
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      # Current-season CSVs first, so build_data.py has today's teams/players/games
+      # to build the main app data (history is layered on top).
+      - name: Fetch current-season data (R → CSV)
+        run: Rscript scripts/fetch_wnba.R
+
+      - name: Fetch WNBA news (R → CSV)
+        run: Rscript scripts/fetch_news.R || echo "news fetch step failed — continuing with preserved news"
+
+      - name: Fetch per-quarter scores (R → CSV)
+        run: Rscript scripts/fetch_lines.R || echo "lines fetch step failed — continuing with preserved lines"
+
+      - name: Backfill season history (R → CSV)
+        # Writes dim_season / dim_team_season / fact_player_season_hist /
+        # fact_team_season / fact_team_playoff. Fatal on failure (this is the whole
+        # point of the run), unlike the defensive daily fetches.
+        run: Rscript scripts/backfill_history.R
+
+      - name: Rebuild snapshot (CSV → JSON)
+        run: python3 scripts/build_data.py ./data/csv ./src/data
+
+      - name: Build and check invariants
+        run: |
+          npm ci --ignore-scripts
+          npm run build
+          node scripts/smoke_refresh.mjs
+
+      - name: Commit if the data changed
+        run: |
+          git config user.name  "courtside-data-bot"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          cp src/data/app-data.json docs/app-data.json
+          if git diff --quiet -- src/data/app-data.json docs/app-data.json; then
+            echo "No change in app-data.json — nothing to commit."
+          else
+            git add src/data/app-data.json docs/app-data.json
+            git commit -m "data: historical backfill $(date -u +%Y-%m-%d)"
+            git push origin HEAD:${{ github.ref_name }}
+            echo "Pushed snapshot with season history."
+          fi

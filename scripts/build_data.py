@@ -302,10 +302,75 @@ def build(csv_dir: Path, out_dir: Path):
     else:
         print(f"  game lines     {len(GL)} (preserved — no fact_game_line.csv)")
 
+    # --- historical seasons & career arcs (PHIST / THIST) --------------------
+    # Populated by the one-off backfill (scripts/backfill_history.R -> *_hist.csv),
+    # PRESERVED from the previous snapshot on daily runs that don't carry those
+    # CSVs. Only completed PAST seasons are stored here (season < current); the
+    # app appends the live current-season point from P / S so the arc tip never
+    # goes stale. Trimmed to players/teams that exist in the app today.
+    cur_season = int(last_done[:4]) if last_done else None
+    keep_teams = {t[0] for t in T}
+    anomalous = set()
+    for r in _opt("dim_season.csv"):
+        flag = str(r.get("is_anomalous", "")).upper() in ("TRUE", "1")
+        if flag or r.get("season") == "2020":
+            try: anomalous.add(int(r["season"]))
+            except (ValueError, TypeError): pass
+    abbr_season = {}                                  # (season, team_id) -> abbreviation
+    cur_abbr = {t[0]: t[1] for t in T}
+    for r in _opt("dim_team_season.csv"):
+        try: abbr_season[(int(r["season"]), int(r["team_id"]))] = r.get("team_abbreviation") or ""
+        except (ValueError, TypeError): pass
+
+    ph_rows = _opt("fact_player_season_hist.csv")
+    if ph_rows:
+        PHIST = {}
+        for r in ph_rows:
+            try: aid, yr = int(r["athlete_id"]), int(r["season"])
+            except (ValueError, TypeError, KeyError): continue
+            if aid not in keep or (cur_season and yr >= cur_season): continue
+            gp = int(num(r.get("games_played")))
+            if gp <= 0: continue
+            try: tid = int(float(r["primary_team_id"])) if r.get("primary_team_id") else None
+            except (ValueError, TypeError): tid = None
+            row = {"yr": yr, "tm": abbr_season.get((yr, tid)) or cur_abbr.get(tid) or "",
+                   "gp": gp, "ppg": round(num(r.get("ppg")), 1), "rpg": round(num(r.get("rpg")), 1),
+                   "apg": round(num(r.get("apg")), 1), "ts": round(num(r.get("ts_pct")) * 100, 1)}
+            if yr in anomalous: row["bubble"] = 1
+            PHIST.setdefault(aid, []).append(row)
+        for v in PHIST.values(): v.sort(key=lambda x: x["yr"])
+        print(f"  player history  {len(PHIST)} players ({sum(len(v) for v in PHIST.values())} season rows)")
+    else:
+        PHIST = {int(k): v for k, v in (PREV.get("PHIST") or {}).items() if int(k) in keep}
+        print(f"  player history  {len(PHIST)}  (preserved — no *_hist.csv)")
+
+    ts_rows = _opt("fact_team_season.csv")
+    if ts_rows:
+        playoff = {}                                 # (season, team_id) -> result label
+        for r in _opt("fact_team_playoff.csv"):
+            try: playoff[(int(r["season"]), int(r["team_id"]))] = r.get("result") or ""
+            except (ValueError, TypeError): pass
+        THIST = {}
+        for r in ts_rows:
+            try: tid, yr = int(r["team_id"]), int(r["season"])
+            except (ValueError, TypeError, KeyError): continue
+            if tid not in keep_teams or (cur_season and yr >= cur_season): continue
+            row = {"yr": yr, "w": int(num(r.get("wins"))), "l": int(num(r.get("losses"))),
+                   "pct": round(num(r.get("win_pct")), 3), "pf": round(num(r.get("ppg_for")), 1),
+                   "pa": round(num(r.get("ppg_against")), 1), "note": playoff.get((yr, tid), "")}
+            if yr in anomalous: row["bubble"] = 1
+            THIST.setdefault(tid, []).append(row)
+        for v in THIST.values(): v.sort(key=lambda x: x["yr"])
+        print(f"  team history    {len(THIST)} teams ({sum(len(v) for v in THIST.values())} season rows)")
+    else:
+        THIST = {int(k): v for k, v in (PREV.get("THIST") or {}).items() if int(k) in keep_teams}
+        print(f"  team history    {len(THIST)}  (preserved — no fact_team_season.csv)")
+
     payload = {"meta":{"totalGames":len(G), "completedGames":completed,
                        "leagueAvgPpg":round(sum(int(r["team_score"]) for r in tbox)/len(tbox),1),
-                       "lastGame":max((r[1] for r in G if r[9]), default=None)},
-               "T":T,"S":S,"P":P,"G":G,"N":N,"BIO":BIO,"TEAM_BIO":TEAM_BIO,"SHOTS":SHOTS,"GB":GB,"GL":GL}
+                       "lastGame":max((r[1] for r in G if r[9]), default=None), "season":cur_season},
+               "T":T,"S":S,"P":P,"G":G,"N":N,"BIO":BIO,"TEAM_BIO":TEAM_BIO,"SHOTS":SHOTS,"GB":GB,"GL":GL,
+               "PHIST":PHIST,"THIST":THIST}
     dst = out_dir/"app-data.json"
     dst.write_text(json.dumps(payload, separators=(",",":")))
     kb = dst.stat().st_size/1024
