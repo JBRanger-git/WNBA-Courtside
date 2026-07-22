@@ -14,9 +14,13 @@ first. Lives on the **default branch** so it survives dev-branch restarts.
   exit dialog, quarter scores, dark-mode fix, career arcs / team history) has been
   built and uploaded targeting **API 36 (Android 16)**. Bump `versionCode` above the
   highest in Play Console → App bundle explorer for each new upload.
-- **Gate to production:** **12 testers** opted in for **14 continuous days**, then
-  *Apply for production*. Live count is only in Play Console → Test and release →
-  Testing → Closed testing (not tracked in this repo).
+- **⚠️ Newest features NOT yet in a build:** matchup **head-to-head** history and
+  **local-timezone tip-off times** (#21) are merged to default but ship only in the
+  *next* AAB. Rebuild + upload to put them in front of testers (recipe below — and
+  **do the `npm run sync`**, or the AAB ships the old UI).
+- **Gate to production:** testers are **secured** (full roster opted in) → after
+  **14 continuous days** of active testing, *Apply for production*. Live count/date
+  is only in Play Console → Test and release → Testing → Closed testing.
 - **Data is fetched at runtime** from GitHub Pages (`docs/app-data.json`), rebuilt
   daily by GitHub Actions. No rebuild needed for *data* — only for app/UI changes.
 
@@ -52,10 +56,11 @@ first. Lives on the **default branch** so it survives dev-branch restarts.
 
 ---
 
-## What shipped to default this session (all merged, awaiting a build)
+## What shipped to default (all merged, awaiting a build)
 
 | PR | What |
 |----|------|
+| #21 | Matchup **head-to-head** (prior meetings + scores + series tally + playoff tag, from a new `GHIST` game log — merges past seasons with the current one) and **local-timezone tip-off times** on the schedule / upcoming-game pages. Backfill re-run so the branch/default carries real `GHIST` (1,432 games, 2020–2025) + real tip-offs on all 333 games — features are live-data on merge, no separate backfill dispatch needed. Also hardened the smoke bundle checks (scan all Vite chunks) |
 | #14 (v6) | Player profile **bio line** (data-derived) + **"Club"→"Team"** label; **Wire** = live clickable ESPN news (`fetch_news.R`); SESSION-STATUS onto default |
 | #15 (v7) | **Android back button**: navigate one level (search/detail pop), **"Exit Courtside?"** dialog on a top-level tab; **quarter-by-quarter scores** on the game page (`fetch_lines.R` → `GL`); **dark-mode fix** (root `color` so bare figures aren't invisible) |
 | #16 | Commit **icon tooling** (`sharp`, `@capacitor/assets`, Capacitor 6.2.1) into `package.json` so it stops colliding with pulls; workflows use `npm ci --ignore-scripts` |
@@ -78,10 +83,17 @@ Manual        · backfill-history.yml (backfill_history.R → PHIST/THIST) — d
         ▼  commit → GitHub Pages serves it → app fetches + hot-swaps (bundled fallback)
 ```
 
-- **build_data.py PRESERVES slow data** (bio, news, shots, **PHIST/THIST**) from the
-  previous snapshot when its source CSV is absent. So the daily refresh keeps the
+- **build_data.py PRESERVES slow data** (bio, news, shots, **PHIST/THIST/GHIST**) from
+  the previous snapshot when its source CSV is absent. So the daily refresh keeps the
   history and just updates the current-season numbers; the app appends the **live
   current season** as each career arc's / team timeline's last point.
+- **`GHIST`** (head-to-head game log, `#21`) = past-season games `[date, homeId,
+  awayId, hs, as, seasonType]`, built by `backfill_history.R` → `fact_games_hist.csv`
+  and preserved like PHIST/THIST. The matchup page merges it with the current season
+  (from `G`) for prior meetings; excludes the current season to avoid double-count.
+- **Tip-off times:** `fetch_wnba.R` writes `game_datetime` (UTC) + `time_valid` into
+  `dim_games.csv`; `build_data.py` emits it as the **11th element of each `G` row**
+  (blank for TBD / older snapshots). The app renders it in the viewer's timezone.
 - **Playoff finishes** (team History): champion + runner-up from each season's final
   game; semifinalists from the playoff calendar (robust to the 2020/2021 vs 2022+
   formats and byes). Validated: champions match reality 2020–2024.
@@ -172,9 +184,9 @@ launcher icons already in `android/app/src/main/res/mipmap-*/`; `android/` is gi
 
 ## Key files
 
-- `src/App.jsx` — the whole app (~1,900 lines). Screens are clean function boundaries.
+- `src/App.jsx` — the whole app (~2,000 lines). Screens are clean function boundaries.
   Theme `LIGHT`/`DARK` + `applyTheme()`; data via `getData()`; `computeTables()` builds
-  `PHIST`/`THIST` etc.
+  `PHIST`/`THIST` etc.; `HeadToHead` (matchup history) + `fmtLocalTime` (tip-off times).
 - `src/data/{dataSource,loadRemote}.js` — runtime data layer (cached ▸ network ▸ bundled).
 - `scripts/fetch_wnba.R` · `fetch_news.R` · `fetch_lines.R` · `fetch_shots.R` ·
   `backfill_history.R` — the R fetches (all ESPN-backed → CI-only).
