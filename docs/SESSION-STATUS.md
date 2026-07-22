@@ -12,18 +12,21 @@ first. Lives on the **default branch** so it survives dev-branch restarts.
 - **Play Store:** in **Closed testing**. All of v6 + v7 + history is **merged to
   default**; a build carrying it (profile bio, "Team" label, live Wire, back-button +
   exit dialog, quarter scores, dark-mode fix, career arcs / team history) has been
-  built and uploaded targeting **API 36 (Android 16)**. Bump `versionCode` above the
-  highest in Play Console → App bundle explorer for each new upload.
-- **⚠️ v1.1.0 — merged to default, ships in the NEXT AAB.** Everything below is on
+  built and uploaded targeting **API 36 (Android 16)**.
+- **Versioning is automatic now.** `package.json` `version` is the single source of
+  truth: `prep-android-api36.sh` stamps `versionName` from it AND derives
+  `versionCode` (major*10000 + minor*100 + patch, so **1.1.1 → 10101**) — monotonic
+  and well above the small legacy codes. **Never hand-edit either; just bump
+  `package.json` and rebuild.** (1.0.0 built as legacy codes; from 1.1.1 on the
+  derived scheme takes over and only ever increases.)
+- **⚠️ v1.1.1 — merged to default, ships in the NEXT AAB.** Everything below is on
   default but only reaches testers once you rebuild + upload (recipe below — and
   **do the `npm run sync`**, or the AAB ships the old UI):
-  matchup **head-to-head** history (#21) · **local-timezone tip-off times** (#21) ·
-  standings **DIFF per-game** + **clickable team Games rows** + one-line scores (#25) ·
-  the **All-Star blank-Schedule fix** (#23, already live in *data* over-the-air) ·
-  **motion pass** — page transitions + tap feedback (#26) + **sub-tab swipe** (#27).
-  `package.json` version is now **1.1.0**; `prep-android-api36.sh` stamps `versionName`
-  from it, so you no longer hand-edit it — just bump `versionCode` above the highest
-  uploaded.
+  matchup **head-to-head** history (#21) · **local-timezone tip-off times** (#21, dates
+  localised too #29) · standings **DIFF per-game** + **clickable team Games rows** +
+  one-line scores (#25) · **All-Star blank-Schedule fix** (#23, live in *data* OTA) ·
+  **superseded phantom-fixture removal** (#30) · **motion pass** — page transitions +
+  tap feedback (#26) + **sub-tab swipe** (#27).
 - **Gate to production:** testers are **secured** (full roster opted in) → after
   **14 continuous days** of active testing, *Apply for production*. Live count/date
   is only in Play Console → Test and release → Testing → Closed testing.
@@ -145,13 +148,9 @@ npm install --ignore-scripts              # skips native sharp build; app build 
 npm run sync                              # REBUILD web + cap sync — don't skip this
 
 bash scripts/prep-android-api36.sh        # SDK 36 + suppress flag + installs API 36,
-                                          # and stamps versionName from package.json (now 1.1.0)
-
-# versionName is set by the script above (1.1.0). Only bump versionCode, above the
-# highest already uploaded (Play Console → App bundle explorer):
-set -l cur (grep -oP 'versionCode\s+\K[0-9]+' android/app/build.gradle)
-sed -i "s/versionCode $cur/versionCode "(math $cur + 1)"/" android/app/build.gradle
-grep -nE 'versionCode|versionName' android/app/build.gradle   # expect versionName "1.1.0"
+                                          # AND stamps BOTH versionName and versionCode
+                                          # from package.json — no manual version edits
+grep -nE 'versionCode|versionName' android/app/build.gradle   # sanity: name=package.json, code=derived
 
 cd android && ./gradlew clean bundleRelease
 jarsigner -verify app/build/outputs/bundle/release/app-release.aab   # expect "jar verified."
@@ -176,9 +175,10 @@ launcher icons already in `android/app/src/main/res/mipmap-*/`; `android/` is gi
 ## Outstanding / next steps
 
 1. **Confirm the API-36 build is live in the testing track** and the "target API by
-   Aug 31, 2026" warning has cleared. For any further update: `git pull` + `npm run
-   sync` + `bash scripts/prep-android-api36.sh` + bump versionCode, then rebuild.
-2. **Testers:** 12 opted in → 14 continuous days → *Apply for production*. Launch gate.
+   Aug 31, 2026" warning has cleared. For any further update: bump `package.json`
+   version, then `git pull` + `npm run sync` + `bash scripts/prep-android-api36.sh`
+   (it sets versionName + versionCode) + rebuild.
+2. **Testers:** secured (full roster) → 14 continuous days → *Apply for production*.
 3. **Backlog not yet done:** full shot-coordinate scatter (pbp has `coordinate_x/y`);
    team identity/pace panel (needs a team-box/pbp fetch); college & honours on player
    profiles (`wikidata_bio.py` written, unrun — fills the "out of {college}" slot that's
