@@ -12,7 +12,8 @@ const D = JSON.parse(readFileSync('src/data/app-data.json','utf8'));
 const checks = [
   ['teams', D.T.length === 15],
   ['standings sorted by win pct', D.S[0][3] >= D.S[14][3]],
-  ['games exclude teamless All-Star row', D.G.every(g => g[2] && g[3])],
+  ['games reference only real clubs (All-Star filtered)',
+    (() => { const ids = new Set(D.T.map(t => t[0])); return D.G.every(g => ids.has(g[2]) && ids.has(g[3])); })()],
   ['completed count matches box scores', D.G.filter(g=>g[9]).length === D.meta.completedGames],
   ['usage is a percent not a fraction', D.P[0][16] > 1],
   ["A'ja Wilson usage ~33%", Math.abs(D.P.find(p=>p[1]==="A'ja Wilson")[16] - 33.2) < 0.5],

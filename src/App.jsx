@@ -50,8 +50,12 @@ function computeTables() {
     ({ id, name, teamId, pos, gp, mpg, ppg, rpg, apg, spg, bpg, topg, fg, tp, ft, ts, usg, tpa, team: TEAM[teamId], bio: BIO[id] || {}, hist: hist(PHIST, id) }));
   // iso (element 10) is the tip-off as a UTC timestamp when the feed has a real
   // time; absent on older snapshots and TBD fixtures. Rendered in local time.
+  // Drop any game whose clubs don't resolve (e.g. the All-Star Game's synthetic
+  // team IDs) — a missing team would crash a render to a blank screen. build_data
+  // already filters these; this is defense-in-depth for older/stray snapshots.
   GAMES = RAW.G.map(([id, date, homeId, awayId, hs, as_, net, tier, city, done, iso]) =>
-    ({ id, date, homeId, awayId, hs, as: as_, net, tier, city, done: !!done, iso: iso || "", home: TEAM[homeId], away: TEAM[awayId] }));
+    ({ id, date, homeId, awayId, hs, as: as_, net: net || "", tier, city, done: !!done, iso: iso || "", home: TEAM[homeId], away: TEAM[awayId] }))
+    .filter(g => g.home && g.away);
   GAME = Object.fromEntries(GAMES.map(g => [g.id, g]));
   // link is optional (older/preserved snapshots omit it) — the Wire renders a
   // plain, non-clickable headline when it's absent. Never fabricate one.
