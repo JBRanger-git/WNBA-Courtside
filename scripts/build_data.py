@@ -79,11 +79,21 @@ def build(csv_dir: Path, out_dir: Path):
     box = defaultdict(dict)
     for r in tbox: box[r["game_id"]][r["team_home_away"]] = int(r["team_score"])
 
+    team_ids = {r[0] for r in T}   # real clubs (this season's snapshot)
     G, skipped = [], 0
     for g in games_raw:
-        # FIX: dim_games carries the All-Star Game with home/away = "TBD" and no team
-        # IDs. Left in, it renders as a phantom fixture on two team pages.
-        if g["home_display_name"]=="TBD" or g["away_display_name"]=="TBD":
+        # FIX: dim_games carries the All-Star Game. It USED to appear with home/away
+        # = "TBD" and no team IDs; the feed now also publishes it with NAMED all-star
+        # squads and synthetic team IDs (e.g. 133383/133384) that are not real clubs.
+        # Either way it must stay out of team-scoped data — filter by real-club
+        # membership, not just the "TBD" sentinel. Left in, the app hits an undefined
+        # team (TEAM[133384]) and the Schedule screen crashes to blank.
+        try:
+            hid, aid = int(g["home_team_id"]), int(g["away_team_id"])
+        except (ValueError, TypeError, KeyError):
+            skipped += 1; continue
+        if hid not in team_ids or aid not in team_ids \
+           or g["home_display_name"]=="TBD" or g["away_display_name"]=="TBD":
             skipped += 1; continue
         b = box.get(g["game_id"], {})
         done = "home" in b and "away" in b
@@ -94,7 +104,7 @@ def build(csv_dir: Path, out_dir: Path):
         dt = (g.get("game_datetime") or "").strip()
         tv = str(g.get("time_valid", "")).strip().upper()
         iso = dt if ("T" in dt and tv != "FALSE") else ""
-        G.append([g["game_id"], g["game_date"], int(g["home_team_id"]), int(g["away_team_id"]),
+        G.append([g["game_id"], g["game_date"], hid, aid,
                   b.get("home") if done else None, b.get("away") if done else None,
                   g["broadcast_name"], "N" if g["broadcast_name"] in NATIONAL else "L",
                   g["venue_address_city"], 1 if done else 0, iso])

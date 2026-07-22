@@ -16,7 +16,8 @@ const usages = D.P.map(p => p[16]).filter(u => u != null);
 const checks = [
   ['teams present',                       D.T.length >= 12],
   ['standings sorted by win pct',         D.S[0][3] >= D.S[D.S.length - 1][3]],
-  ['games exclude teamless rows',         D.G.every(g => g[2] && g[3])],
+  ['games reference only real clubs (All-Star filtered)',
+    (() => { const ids = new Set(D.T.map(t => t[0])); return D.G.every(g => ids.has(g[2]) && ids.has(g[3])); })()],
   ['completed count matches box scores',  D.G.filter(g => g[9]).length === D.meta.completedGames],
   ['season in progress (some done, some upcoming)',
                                           D.meta.completedGames > 0 && D.meta.totalGames > D.meta.completedGames],
