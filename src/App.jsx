@@ -250,12 +250,17 @@ export default function CourtsideApp() {
         .cs-push  { animation: cs-push .2s cubic-bezier(.22,.61,.36,1) both }
         .cs-fade  { animation: cs-fade .15s ease-out both }
         .cs-sheet { animation: cs-sheet .2s cubic-bezier(.22,.61,.36,1) both }
+        /* Sub-tab swipe: content slides in from the side you're moving toward. */
+        @keyframes cs-swipe-l { from { opacity:.35; transform:translateX(30px) } to { opacity:1; transform:none } }
+        @keyframes cs-swipe-r { from { opacity:.35; transform:translateX(-30px) } to { opacity:1; transform:none } }
+        .cs-swipe-l { animation: cs-swipe-l .22s cubic-bezier(.22,.61,.36,1) both }
+        .cs-swipe-r { animation: cs-swipe-r .22s cubic-bezier(.22,.61,.36,1) both }
         /* Touch feedback: buttons dim, tappable rows tint, on press. */
         button, .tap { -webkit-tap-highlight-color: transparent; }
         button:active, .tap:active { opacity:.55; transition: opacity .05s }
         @media (prefers-reduced-motion: reduce){
           *{transition:none!important}
-          .cs-push,.cs-fade,.cs-sheet{animation:none!important}
+          .cs-push,.cs-fade,.cs-sheet,.cs-swipe-l,.cs-swipe-r{animation:none!important}
         }
       `}</style>
 
@@ -1006,6 +1011,30 @@ function GameDetail({ game: g, onBack, openTeam, openPlayer, openGame }) {
   );
 }
 
+// Directional slide + horizontal swipe for the detail sub-tabs. Returns the
+// animation class (slide from the side you're moving toward — none on first
+// mount, so it doesn't stack on the page-push), and touch handlers that turn a
+// clear horizontal swipe into a tab change. Vertical drags (scrolling) are
+// ignored via the horizontal-dominance test, and it never preventDefaults.
+function useSwipeTabs(tabs, active, set) {
+  const prev = useRef(active), mounted = useRef(false), start = useRef(null);
+  const idx = tabs.indexOf(active);
+  const dir = !mounted.current ? "" : (idx >= tabs.indexOf(prev.current) ? "cs-swipe-l" : "cs-swipe-r");
+  useEffect(() => { mounted.current = true; prev.current = active; }, [active]);
+  const onTouchStart = (e) => { const t = e.touches[0]; start.current = [t.clientX, t.clientY]; };
+  const onTouchEnd = (e) => {
+    if (!start.current) return;
+    const t = e.changedTouches[0];
+    const dx = t.clientX - start.current[0], dy = t.clientY - start.current[1];
+    start.current = null;
+    if (Math.abs(dx) > 55 && Math.abs(dx) > Math.abs(dy) * 1.8) {
+      if (dx < 0 && idx < tabs.length - 1) set(tabs[idx + 1]);
+      else if (dx > 0 && idx > 0) set(tabs[idx - 1]);
+    }
+  };
+  return { dir, handlers: { onTouchStart, onTouchEnd } };
+}
+
 function SubTabs({ tabs, active, set }) {
   // Four tabs of long words (Percentiles / Fingerprint) crowd at 10.5px, so tighten
   // the type and kill wrapping once there are 4+.
@@ -1029,6 +1058,8 @@ function TeamDetail({ team, onBack, openPlayer, openGame }) {
   const roster = PLAYERS.filter(p => p.teamId === team.id).sort((a, b) => b.ppg - a.ppg);
   const games = GAMES.filter(g => g.homeId === team.id || g.awayId === team.id);
   const rank = STANDINGS.findIndex(x => x.id === team.id) + 1;
+  const tabs = ["Overview", "Roster", "Games", ...(team.hist?.length ? ["History"] : [])];
+  const swipe = useSwipeTabs(tabs, sub, setSub);
 
   return (
     <>
@@ -1037,8 +1068,8 @@ function TeamDetail({ team, onBack, openPlayer, openGame }) {
           <div style={{ fontFamily: DISPLAY, fontSize: 21, fontWeight: 700, ...agate }}>{s.w}–{s.l}</div>
           <div style={{ fontSize: 10, fontWeight: 700, color: s.streak[0] === "W" ? C.good : C.bad, ...agate }}>{s.streak}</div>
         </div>} />
-      <SubTabs tabs={["Overview", "Roster", "Games", ...(team.hist?.length ? ["History"] : [])]} active={sub} set={setSub} />
-      <div className="noscroll" style={{ flex: 1, overflowY: "auto", padding: "0 14px 12px" }}>
+      <SubTabs tabs={tabs} active={sub} set={setSub} />
+      <div key={sub} className={"noscroll " + swipe.dir} {...swipe.handlers} style={{ flex: 1, overflowY: "auto", overflowX: "hidden", padding: "0 14px 12px" }}>
         {sub === "Overview" && <>
           <TeamBio team={team} />
           <SectionHead>Season</SectionHead>
@@ -1113,6 +1144,8 @@ function Bar({ label, v, max, color }) {
 
 function PlayerDetail({ player: p, onBack, openTeam }) {
   const [sub, setSub] = useState("Profile");
+  const tabs = ["Profile", "Percentiles", "Fingerprint", ...(p.hist?.length ? ["Career"] : [])];
+  const swipe = useSwipeTabs(tabs, sub, setSub);
   const pcts = [
     ["Points", "ppg", p.ppg, true], ["Rebounds", "rpg", p.rpg, true], ["Assists", "apg", p.apg, true],
     ["True shooting", "ts", p.ts + "%", true], ["Usage", "usg", p.usg + "%", true],
@@ -1125,8 +1158,8 @@ function PlayerDetail({ player: p, onBack, openTeam }) {
           <div style={{ fontFamily: DISPLAY, fontSize: 21, fontWeight: 700, ...agate }}>{p.ppg}</div>
           <div style={{ fontSize: 8.5, color: C.sec, letterSpacing: .8, fontWeight: 700 }}>PPG</div>
         </div>} />
-      <SubTabs tabs={["Profile", "Percentiles", "Fingerprint", ...(p.hist?.length ? ["Career"] : [])]} active={sub} set={setSub} />
-      <div className="noscroll" style={{ flex: 1, overflowY: "auto", padding: "0 14px 12px" }}>
+      <SubTabs tabs={tabs} active={sub} set={setSub} />
+      <div key={sub} className={"noscroll " + swipe.dir} {...swipe.handlers} style={{ flex: 1, overflowY: "auto", overflowX: "hidden", padding: "0 14px 12px" }}>
         {sub === "Profile" && <>
           <BioStrip p={p} />
           <PlayerBlurb p={p} />
