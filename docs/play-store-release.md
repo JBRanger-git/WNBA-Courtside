@@ -46,19 +46,21 @@ npm run verify                 # data -> build -> smoke, must be green
 npx cap add android            # first time only, creates android/
 ```
 
-### 2a. Target API level
+### 2a. Target API level — **API 36 (Android 16), required from Aug 31, 2026**
 
-Google requires **new apps and updates target API 35** (enforced since Aug 2025).
-Capacitor 6 scaffolds targeting API 34, so bump it:
-
-- `android/variables.gradle` → `compileSdkVersion` and `targetSdkVersion` to `35`.
-- Keep `minSdkVersion` at Capacitor's default (22) unless you have a reason.
-
-Then re-sync:
+Google requires updates to **target API 36** by Aug 31, 2026. Capacitor 6 scaffolds
+API 34 in the gitignored `android/`, and those values RESET on every `cap add`, so
+this is a manual step each time. Use the committed helper instead of hand-editing:
 
 ```bash
-npx cap sync android
+npm run sync                        # build web + cap sync (must run first)
+bash scripts/prep-android-api36.sh  # sets compile/target SDK 36 + suppress flag + installs the platform
 ```
+
+The script is idempotent and prints the AGP-bump fallback if the (older Capacitor 6)
+Gradle plugin can't compile against SDK 36. Keep `minSdkVersion` at Capacitor's
+default (22). The app already handles Android 16 edge-to-edge (safe-area insets in
+`src/index.css` + `viewport-fit=cover`), so no layout change is needed.
 
 ---
 
@@ -173,7 +175,7 @@ No third-party imagery in any screenshot or graphic — same rule as the app
 - [x] Data source — decision recorded, proceeding as a fan project (§0)
 - [ ] `npm run verify` green
 - [ ] `versionCode` incremented (§1)
-- [ ] `targetSdkVersion = 35` (§2a)
+- [ ] `targetSdkVersion = 36` — run `scripts/prep-android-api36.sh` (§2a)
 - [ ] Icons/splash generated, no white screen on device (§3, §5)
 - [ ] Keystore created **and backed up** (§4)
 - [ ] Privacy policy hosted, contact email filled in (§6.3)

@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+# =============================================================================
+# Prep the (gitignored) android/ project to target Android 16 / API 36, which
+# Google Play requires for updates from Aug 31, 2026.
+#
+# These values live in android/variables.gradle etc., which are NOT in git and
+# RESET every time `npx cap add android` regenerates the project — so run this
+# AFTER `npm run sync` (or `cap add`) and BEFORE `./gradlew bundleRelease`.
+# Idempotent; safe to re-run.
+#
+#   bash scripts/prep-android-api36.sh
+# =============================================================================
+set -euo pipefail
+API=36
+
+[ -d android ] || { echo "ERROR: no android/ folder — run 'npx cap add android' first."; exit 1; }
+
+VARS=android/variables.gradle
+PROPS=android/gradle.properties
+
+# 1) compile + target SDK -> 36  (compileSdk must be >= targetSdk)
+sed -i -E "s/(compileSdkVersion[[:space:]]*=[[:space:]]*)[0-9]+/\1${API}/" "$VARS"
+sed -i -E "s/(targetSdkVersion[[:space:]]*=[[:space:]]*)[0-9]+/\1${API}/"  "$VARS"
+
+# 2) let Capacitor 6's (older) Android Gradle Plugin compile against a newer SDK
+#    than it was tested with, instead of erroring.
+touch "$PROPS"
+if grep -q "suppressUnsupportedCompileSdk" "$PROPS"; then
+  sed -i -E "s/(android\.suppressUnsupportedCompileSdk[[:space:]]*=[[:space:]]*).*/\1${API}/" "$PROPS"
+else
+  echo "android.suppressUnsupportedCompileSdk=${API}" >> "$PROPS"
+fi
+
+# 3) make sure the SDK platform is installed (no-op if already present)
+if command -v sdkmanager >/dev/null 2>&1; then
+  yes | sdkmanager "platforms;android-${API}" >/dev/null 2>&1 || true
+else
+  echo "note: 'sdkmanager' not on PATH — install 'Android 16 (API 36)' via Android Studio > SDK Manager."
+fi
+
+echo "OK — android/ set to compile/target API ${API}:"
+grep -E "compileSdkVersion|targetSdkVersion" "$VARS" | sed 's/^/  /'
+echo "  $(grep suppressUnsupportedCompileSdk "$PROPS")"
+echo
+echo "Now: (cd android && ./gradlew clean bundleRelease)"
+echo
+echo "IF the build errors that the Android Gradle Plugin can't use compileSdk ${API},"
+echo "Capacitor 6's AGP is too old — bump it (both are in the gitignored android/):"
+echo "  android/build.gradle:  classpath 'com.android.tools.build:gradle:8.7.2'"
+echo "  android/gradle/wrapper/gradle-wrapper.properties:  s/gradle-8.2.1-all.zip/gradle-8.9-all.zip/"
+echo "then re-run ./gradlew clean bundleRelease. (Longer-term, Capacitor 7 targets"
+echo "API 35/36 cleanly but needs JDK 21.)"
