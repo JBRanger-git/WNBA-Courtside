@@ -186,6 +186,22 @@ const fmtLocalTime = (iso) => {
   return d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 };
 
+// The game's calendar day IN THE VIEWER'S TIMEZONE. When we have the real tip-off
+// (iso), a late US game can fall on the next day locally — so the DATE has to
+// localize too, or it won't match the local time we show right beside it. Falls
+// back to noon on the feed's date (keeps the weekday stable) when there's no iso.
+const gameLocalDate = (g) => {
+  if (g && g.iso) { const d = new Date(g.iso); if (!isNaN(d.getTime())) return d; }
+  return new Date(((g && g.date) || "") + "T12:00:00");
+};
+// The same local day as a sortable/groupable YYYY-MM-DD key.
+const gameLocalKey = (g) => {
+  const d = gameLocalDate(g);
+  if (isNaN(d.getTime())) return (g && g.date) || "";
+  const p = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+};
+
 export default function CourtsideApp() {
   const [tab, setTab] = useState("home");
   const [stack, setStack] = useState(null); // {type:'team'|'player', id}
@@ -421,7 +437,7 @@ function SearchOverlay({ open, close }) {
 function ScoreRail({ open }) {
   const days = useMemo(() => {
     const byDate = {};
-    GAMES.forEach(g => { (byDate[g.date] ||= []).push(g); });
+    GAMES.forEach(g => { (byDate[gameLocalKey(g)] ||= []).push(g); });
     // Latest results first: take the most recent days that have completed games
     // so the rail is current, not stuck on opening week.
     const recent = Object.keys(byDate)
@@ -673,10 +689,13 @@ function ScheduleScreen({ open }) {
     // (postponed, or the box score is still landing) is kept and marked
     // "Awaiting data" in the row rather than hidden, so nothing silently
     // disappears. It resolves once the result arrives or the feed reschedules it.
+    // Group + sort by the LOCAL tip-off day (not the feed's date), so a late game
+    // that's tomorrow in the viewer's timezone lands under tomorrow's header — in
+    // step with the local time shown on the row.
     GAMES.filter(g => !g.done)
       .slice()
-      .sort((a, b) => a.date < b.date ? -1 : a.date > b.date ? 1 : 0)
-      .forEach(g => { (m[g.date] ||= []).push(g); });
+      .sort((a, b) => gameLocalDate(a).getTime() - gameLocalDate(b).getTime())
+      .forEach(g => { (m[gameLocalKey(g)] ||= []).push(g); });
     return Object.entries(m);
   }, []);
   const upcoming = days.reduce((n, [, gs]) => n + gs.length, 0);
@@ -881,7 +900,7 @@ function GameDetail({ game: g, onBack, openTeam, openPlayer, openGame }) {
   const homeSt = STANDINGS.find(s => s.id === g.homeId) || {};
   const awayWin = g.done && g.as > g.hs;
   const homeWin = g.done && g.hs > g.as;
-  const dateLabel = new Date(g.date + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric" });
+  const dateLabel = gameLocalDate(g).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric" });
   const winner = awayWin ? g.away : g.home;
   const gb = GAMEBOX[g.id];   // per-game box detail if present in the snapshot
 
@@ -1368,7 +1387,7 @@ function TeamBio({ team }) {
 function TeamSeason({ team, openGame }) {
   const all = useMemo(() => {
     const gs = GAMES.filter(g => g.homeId === team.id || g.awayId === team.id)
-      .sort((a, b) => a.date.localeCompare(b.date));
+      .sort((a, b) => gameLocalDate(a).getTime() - gameLocalDate(b).getTime());
     let w = 0, l = 0;
     return gs.map(g => {
       const isHome = g.homeId === team.id;
@@ -1391,7 +1410,7 @@ function TeamSeason({ team, openGame }) {
   const months = useMemo(() => {
     const m = [];
     rows.forEach(r => {
-      const k = new Date(r.g.date + "T12:00:00").toLocaleDateString("en-US", { month: "long" });
+      const k = gameLocalDate(r.g).toLocaleDateString("en-US", { month: "long" });
       if (!m.length || m[m.length - 1][0] !== k) m.push([k, []]);
       m[m.length - 1][1].push(r);
     });
@@ -1431,7 +1450,7 @@ function TeamSeason({ team, openGame }) {
           {gs.map(({ g, isHome, us, them, won, opp, rec, margin }) => (
             <div key={g.id} className={openGame ? "tap" : undefined} onClick={() => openGame?.(g.id)} style={{ display: "flex", alignItems: "center", gap: 7, padding: "8px 0", borderBottom: `1px solid ${C.border}`, cursor: openGame ? "pointer" : "default" }}>
               <span style={{ fontSize: 10, color: C.mute, width: 20, textAlign: "right", ...agate }}>
-                {new Date(g.date + "T12:00:00").getDate()}
+                {gameLocalDate(g).getDate()}
               </span>
               <span style={{ fontSize: 9.5, color: C.mute, width: 13 }}>{isHome ? "vs" : "@"}</span>
               <Crest team={opp} size={19} />
@@ -1445,7 +1464,7 @@ function TeamSeason({ team, openGame }) {
               ) : (
                 <>
                   <span style={{ fontSize: 9.5, color: C.mute, width: 46, textAlign: "right", ...agate }}>
-                    {new Date(g.date + "T12:00:00").toLocaleDateString("en-US", { weekday: "short" })}
+                    {gameLocalDate(g).toLocaleDateString("en-US", { weekday: "short" })}
                   </span>
                   <span style={{ fontSize: 8.5, color: g.tier === "N" ? C.accent : C.mute, fontWeight: 700, textTransform: "uppercase", width: 62, textAlign: "right" }}>
                     {g.net.replace("WNBA ", "")}
