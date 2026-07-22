@@ -14,10 +14,16 @@ first. Lives on the **default branch** so it survives dev-branch restarts.
   exit dialog, quarter scores, dark-mode fix, career arcs / team history) has been
   built and uploaded targeting **API 36 (Android 16)**. Bump `versionCode` above the
   highest in Play Console → App bundle explorer for each new upload.
-- **⚠️ Newest features NOT yet in a build:** matchup **head-to-head** history and
-  **local-timezone tip-off times** (#21) are merged to default but ship only in the
-  *next* AAB. Rebuild + upload to put them in front of testers (recipe below — and
-  **do the `npm run sync`**, or the AAB ships the old UI).
+- **⚠️ v1.1.0 — merged to default, ships in the NEXT AAB.** Everything below is on
+  default but only reaches testers once you rebuild + upload (recipe below — and
+  **do the `npm run sync`**, or the AAB ships the old UI):
+  matchup **head-to-head** history (#21) · **local-timezone tip-off times** (#21) ·
+  standings **DIFF per-game** + **clickable team Games rows** + one-line scores (#25) ·
+  the **All-Star blank-Schedule fix** (#23, already live in *data* over-the-air) ·
+  **motion pass** — page transitions + tap feedback (#26) + **sub-tab swipe** (#27).
+  `package.json` version is now **1.1.0**; `prep-android-api36.sh` stamps `versionName`
+  from it, so you no longer hand-edit it — just bump `versionCode` above the highest
+  uploaded.
 - **Gate to production:** testers are **secured** (full roster opted in) → after
   **14 continuous days** of active testing, *Apply for production*. Live count/date
   is only in Play Console → Test and release → Testing → Closed testing.
@@ -138,12 +144,14 @@ set -x PATH $ANDROID_HOME/platform-tools $PATH
 npm install --ignore-scripts              # skips native sharp build; app build doesn't need it
 npm run sync                              # REBUILD web + cap sync — don't skip this
 
-bash scripts/prep-android-api36.sh        # sets compile/target SDK 36 + suppress flag + installs API 36
+bash scripts/prep-android-api36.sh        # SDK 36 + suppress flag + installs API 36,
+                                          # and stamps versionName from package.json (now 1.1.0)
 
-# bump versionCode above the highest already uploaded (Play Console → App bundle explorer):
+# versionName is set by the script above (1.1.0). Only bump versionCode, above the
+# highest already uploaded (Play Console → App bundle explorer):
 set -l cur (grep -oP 'versionCode\s+\K[0-9]+' android/app/build.gradle)
 sed -i "s/versionCode $cur/versionCode "(math $cur + 1)"/" android/app/build.gradle
-grep -n versionCode android/app/build.gradle
+grep -nE 'versionCode|versionName' android/app/build.gradle   # expect versionName "1.1.0"
 
 cd android && ./gradlew clean bundleRelease
 jarsigner -verify app/build/outputs/bundle/release/app-release.aab   # expect "jar verified."
