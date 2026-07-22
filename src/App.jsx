@@ -56,6 +56,22 @@ function computeTables() {
   GAMES = RAW.G.map(([id, date, homeId, awayId, hs, as_, net, tier, city, done, iso]) =>
     ({ id, date, homeId, awayId, hs, as: as_, net: net || "", tier, city, done: !!done, iso: iso || "", home: TEAM[homeId], away: TEAM[awayId] }))
     .filter(g => g.home && g.away);
+  // Drop superseded phantoms: when the feed reschedules a game it can leave the
+  // OLD date behind as its own unplayed row (a different game_id), which then sits
+  // in the schedule as a perpetual "awaiting" ghost. Detect it: an unplayed game
+  // dated before the last completed game whose two clubs have since met AND
+  // finished on a LATER date — i.e. the fixture was moved and has already been
+  // played under a new row. A genuinely-pending postponement gets a future date,
+  // so it isn't caught. (feed dates here, not local — this is a data concept.)
+  {
+    const lastDone = GAMES.reduce((mx, g) => (g.done && g.date > mx ? g.date : mx), "");
+    GAMES = GAMES.filter(g => {
+      if (g.done || !lastDone || g.date >= lastDone) return true;
+      const replayed = GAMES.some(o => o.done && o.date > g.date &&
+        ((o.homeId === g.homeId && o.awayId === g.awayId) || (o.homeId === g.awayId && o.awayId === g.homeId)));
+      return !replayed;
+    });
+  }
   GAME = Object.fromEntries(GAMES.map(g => [g.id, g]));
   // link is optional (older/preserved snapshots omit it) — the Wire renders a
   // plain, non-clickable headline when it's absent. Never fabricate one.
