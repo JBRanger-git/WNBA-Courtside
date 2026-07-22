@@ -166,6 +166,13 @@ message("  fact_team_box      ", nrow(fact_team_box))
 dim_games <- tibble(
   game_id            = sc$game_id,
   game_date          = as.character(pick(sc, "game_date")),
+  # `date` is the full UTC tip-off timestamp (ISO 8601 Zulu, e.g.
+  # "2026-05-08T23:00Z"); `game_date` is date-only. Keep it as a UTC string so the
+  # app can render the tip-off in the viewer's own timezone. time_valid flags a
+  # scheduled-but-unset tip (ESPN parks those at 00:00Z) — build_data.py drops the
+  # time when it's FALSE rather than show a bogus midnight kickoff.
+  game_datetime      = as.character(pick_any(sc, c("date", "game_date_time"))),
+  time_valid         = pick_any(sc, c("time_valid"), TRUE),
   home_team_id       = pick(sc, "home_id"),
   away_team_id       = pick(sc, "away_id"),
   home_display_name  = pick(sc, "home_display_name"),

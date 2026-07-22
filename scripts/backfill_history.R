@@ -277,6 +277,45 @@ if (nrow(fact_team_playoff) > 0) {
 }
 
 # =============================================================================
+# fact_games_hist — one row per historical game (regular season + playoffs),
+# from team_box. The matchup page uses this to show prior meetings between two
+# clubs and their scores. Derived from the home-side row of each game (home_id =
+# team_id, away_id = opponent_team_id), so scores can't disagree with team_box.
+# build_data.py drops the current season (owned by the daily pipeline / G) and
+# any club that no longer exists, then preserves this between daily runs.
+# =============================================================================
+fact_games_hist <- tryCatch({
+  ha <- as.character(getcol(team_box, c("team_home_away", "home_away")))
+  tibble(
+    game_id     = as.character(team_box$game_id),
+    season      = team_box$season,
+    season_type = getcol(team_box, "season_type", 2L),
+    game_date   = as.character(getcol(team_box, "game_date")),
+    ha          = ha,
+    team_id     = as.character(team_box$team_id),
+    opp_id      = as.character(getcol(team_box, c("opponent_team_id", "opp_team_id"))),
+    ts          = suppressWarnings(as.numeric(getcol(team_box, "team_score"))),
+    os          = suppressWarnings(as.numeric(getcol(team_box, c("opponent_team_score", "opp_team_score"))))
+  ) |>
+    filter(ha == "home", !is.na(ts), !is.na(os),
+           !is.na(opp_id), opp_id != "NA", opp_id != "") |>
+    transmute(game_id, season, season_type, game_date,
+              home_id = team_id, away_id = opp_id,
+              home_score = ts, away_score = os) |>
+    distinct(game_id, .keep_all = TRUE) |>
+    arrange(game_date)
+}, error = function(e) {
+  message("  h2h game log skipped: ", conditionMessage(e))
+  tibble(game_id = character(), season = integer(), season_type = integer(),
+         game_date = character(), home_id = character(), away_id = character(),
+         home_score = numeric(), away_score = numeric())
+})
+if (nrow(fact_games_hist) > 0)
+  validate_materialised(fact_games_hist, "fact_games_hist", c("game_id", "home_id", "away_id"))
+message("  fact_games_hist    ", nrow(fact_games_hist), " games (",
+        dplyr::n_distinct(fact_games_hist$season), " seasons)")
+
+# =============================================================================
 # History-specific filenames so the one-off backfill NEVER clobbers the daily
 # single-season CSVs (fetch_wnba.R owns fact_player_season.csv; build_data.py
 # reads *_hist.csv for the multi-season history and preserves it between runs).
@@ -285,6 +324,7 @@ write_csv(dim_team_season,     file.path(OUT, "dim_team_season.csv"))
 write_csv(fact_player_season,  file.path(OUT, "fact_player_season_hist.csv"))
 write_csv(fact_team_season,    file.path(OUT, "fact_team_season.csv"))
 write_csv(fact_team_playoff,   file.path(OUT, "fact_team_playoff.csv"))
+write_csv(fact_games_hist,     file.path(OUT, "fact_games_hist.csv"))
 
 message("\nDone. History written to *_hist.csv / fact_team_season.csv / ",
         "fact_team_playoff.csv. dim_teams (current snapshot) stays valid only ",
