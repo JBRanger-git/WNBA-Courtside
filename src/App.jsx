@@ -243,7 +243,20 @@ export default function CourtsideApp() {
         @import url('https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=Roboto:wght@400;500;700&display=swap');
         .noscroll::-webkit-scrollbar{display:none}
         .noscroll{scrollbar-width:none}
-        @media (prefers-reduced-motion: reduce){*{transition:none!important}}
+        /* Navigation motion — subtle + fast, so it reads as continuity, not decoration. */
+        @keyframes cs-push { from { opacity:0; transform:translateX(14px) } to { opacity:1; transform:none } }
+        @keyframes cs-fade { from { opacity:0 } to { opacity:1 } }
+        @keyframes cs-sheet { from { opacity:0; transform:translateY(-10px) } to { opacity:1; transform:none } }
+        .cs-push  { animation: cs-push .2s cubic-bezier(.22,.61,.36,1) both }
+        .cs-fade  { animation: cs-fade .15s ease-out both }
+        .cs-sheet { animation: cs-sheet .2s cubic-bezier(.22,.61,.36,1) both }
+        /* Touch feedback: buttons dim, tappable rows tint, on press. */
+        button, .tap { -webkit-tap-highlight-color: transparent; }
+        button:active, .tap:active { opacity:.55; transition: opacity .05s }
+        @media (prefers-reduced-motion: reduce){
+          *{transition:none!important}
+          .cs-push,.cs-fade,.cs-sheet{animation:none!important}
+        }
       `}</style>
 
       <Splash done={ready} />
@@ -252,20 +265,25 @@ export default function CourtsideApp() {
 
       {showExit && <ExitConfirm onCancel={() => setShowExit(false)} onExit={exitApp} />}
 
+      {/* Keyed wrappers so each navigation remounts and re-triggers its animation:
+          detail pages slide in (a "push"), tab switches cross-fade. Both fill the
+          flex column and keep their own inner scroll (minHeight:0). */}
       {stack ? (
-        stack.type === "team"
-          ? <TeamDetail team={TEAM[stack.id]} onBack={back} openPlayer={(id) => open("player", id)} openGame={(id) => open("game", id)} />
-          : stack.type === "game"
-            ? <GameDetail game={GAME[stack.id]} onBack={back} openTeam={(id) => open("team", id)} openPlayer={(id) => open("player", id)} openGame={(id) => open("game", id)} />
-            : <PlayerDetail player={PLAYERS.find(p => p.id === stack.id)} onBack={back} openTeam={(id) => open("team", id)} />
+        <div key={`${stack.type}:${stack.id}`} className="cs-push" style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0 }}>
+          {stack.type === "team"
+            ? <TeamDetail team={TEAM[stack.id]} onBack={back} openPlayer={(id) => open("player", id)} openGame={(id) => open("game", id)} />
+            : stack.type === "game"
+              ? <GameDetail game={GAME[stack.id]} onBack={back} openTeam={(id) => open("team", id)} openPlayer={(id) => open("player", id)} openGame={(id) => open("game", id)} />
+              : <PlayerDetail player={PLAYERS.find(p => p.id === stack.id)} onBack={back} openTeam={(id) => open("team", id)} />}
+        </div>
       ) : (
-        <>
+        <div key={tab} className="cs-fade" style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0 }}>
           {tab === "home" && <HomeScreen open={open} onSearch={() => setSearch(true)} />}
           {tab === "teams" && <TeamsScreen open={open} onSearch={() => setSearch(true)} />}
           {tab === "players" && <PlayersScreen open={open} />}
           {tab === "schedule" && <ScheduleScreen open={open} />}
           {tab === "more" && <MoreScreen theme={theme} setTheme={chooseTheme} />}
-        </>
+        </div>
       )}
 
       <TabBar tab={tab} setTab={(t) => { setStack(null); setTab(t); }} />
@@ -362,7 +380,7 @@ function SearchOverlay({ open, close }) {
   }, [q]);
   const empty = q.trim() && !hits.players.length && !hits.teams.length;
   return (
-    <div style={{ position: "absolute", inset: 0, background: C.page, zIndex: 20, display: "flex", flexDirection: "column", borderRadius: 33 }}>
+    <div className="cs-sheet" style={{ position: "absolute", inset: 0, background: C.page, zIndex: 20, display: "flex", flexDirection: "column", borderRadius: 33 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "12px 14px", borderBottom: `2px solid ${C.rule}` }}>
         <Search size={15} color={C.sec} />
         <input autoFocus value={q} onChange={e => setQ(e.target.value)} placeholder="Players and teams"
@@ -508,7 +526,7 @@ function HomeScreen({ open, onSearch }) {
               // consistent with the per-game PF/PA columns.
               const pd = Math.round((s.pf - s.pa) * 10) / 10;
               return (
-              <tr key={s.id} onClick={() => open("team", s.id)} style={{ background: i % 2 ? C.stripe : "transparent", cursor: "pointer", borderBottom: (conf === "All" && i === 7) ? `2px dashed ${C.accent}` : `1px solid ${C.border}` }}>
+              <tr key={s.id} className="tap" onClick={() => open("team", s.id)} style={{ background: i % 2 ? C.stripe : "transparent", cursor: "pointer", borderBottom: (conf === "All" && i === 7) ? `2px dashed ${C.accent}` : `1px solid ${C.border}` }}>
                 <td style={{ ...tdStyle, textAlign: "center", color: i < 8 ? C.accent : C.mute, fontWeight: 700, fontSize: 10 }}>{i + 1}</td>
                 <td style={{ ...tdStyle, textAlign: "left" }}>
                   <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
@@ -620,7 +638,7 @@ function PlayersScreen({ open }) {
           </tr></thead>
           <tbody>
             {rows.map((p, i) => (
-              <tr key={p.id + "-" + i} onClick={() => open("player", p.id)} style={{ background: i % 2 ? C.stripe : "transparent", borderBottom: `1px solid ${C.border}`, cursor: "pointer" }}>
+              <tr key={p.id + "-" + i} className="tap" onClick={() => open("player", p.id)} style={{ background: i % 2 ? C.stripe : "transparent", borderBottom: `1px solid ${C.border}`, cursor: "pointer" }}>
                 <td style={{ ...tdStyle, textAlign: "left" }}>
                   <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
                     <span style={{ width: 3, height: 14, background: p.team.color, flexShrink: 0 }} />
@@ -675,7 +693,7 @@ function ScheduleScreen({ open }) {
             {gs.map(g => {
               const awaiting = g.date < cutoff;   // date has passed but no box score yet
               return (
-              <div key={g.id} onClick={() => open("game", g.id)} style={{ display: "flex", alignItems: "center", gap: 8, padding: "9px 0", borderBottom: `1px solid ${C.border}`, cursor: "pointer" }}>
+              <div key={g.id} className="tap" onClick={() => open("game", g.id)} style={{ display: "flex", alignItems: "center", gap: 8, padding: "9px 0", borderBottom: `1px solid ${C.border}`, cursor: "pointer" }}>
                 <div style={{ flex: 1 }}>
                   <SchedSide t={g.away} score={g.as} win={g.done && g.as > g.hs} done={g.done} />
                   <SchedSide t={g.home} score={g.hs} win={g.done && g.hs > g.as} done={g.done} prefix="vs" />
@@ -811,7 +829,7 @@ function HeadToHead({ g, openGame }) {
             const homeWon = m.hs > m.as;
             const clickable = m.id != null && openGame;
             return (
-              <tr key={(m.id || "h") + i} onClick={clickable ? () => openGame(m.id) : undefined}
+              <tr key={(m.id || "h") + i} className={clickable ? "tap" : undefined} onClick={clickable ? () => openGame(m.id) : undefined}
                   style={{ background: i % 2 ? C.stripe : "transparent", borderBottom: `1px solid ${C.border}`, cursor: clickable ? "pointer" : "default" }}>
                 <td style={{ ...tdStyle, textAlign: "left", color: C.sec, whiteSpace: "nowrap", paddingRight: 6 }}>
                   {new Date(m.date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}
@@ -1050,7 +1068,7 @@ function TeamDetail({ team, onBack, openPlayer, openGame }) {
             </tr></thead>
             <tbody>
               {roster.map((p, i) => (
-                <tr key={p.id} onClick={() => openPlayer(p.id)} style={{ background: i % 2 ? C.stripe : "transparent", borderBottom: `1px solid ${C.border}`, cursor: "pointer" }}>
+                <tr key={p.id} className="tap" onClick={() => openPlayer(p.id)} style={{ background: i % 2 ? C.stripe : "transparent", borderBottom: `1px solid ${C.border}`, cursor: "pointer" }}>
                   <td style={{ ...tdStyle, textAlign: "left", fontSize: 11 }}>{p.name}<span style={{ color: C.mute, fontSize: 9, marginLeft: 3 }}>{p.pos}</span></td>
                   <td style={tdStyle}>{p.gp}</td><td style={tdStyle}>{p.mpg}</td>
                   <td style={{ ...tdStyle, fontWeight: 700 }}>{p.ppg}</td>
@@ -1378,7 +1396,7 @@ function TeamSeason({ team, openGame }) {
         <div key={month + gs[0].g.id}>
           <div style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: 1.2, textTransform: "uppercase", color: C.sec, padding: "11px 0 4px", borderBottom: `1.5px solid ${C.rule}` }}>{month}</div>
           {gs.map(({ g, isHome, us, them, won, opp, rec, margin }) => (
-            <div key={g.id} onClick={() => openGame?.(g.id)} style={{ display: "flex", alignItems: "center", gap: 7, padding: "8px 0", borderBottom: `1px solid ${C.border}`, cursor: openGame ? "pointer" : "default" }}>
+            <div key={g.id} className={openGame ? "tap" : undefined} onClick={() => openGame?.(g.id)} style={{ display: "flex", alignItems: "center", gap: 7, padding: "8px 0", borderBottom: `1px solid ${C.border}`, cursor: openGame ? "pointer" : "default" }}>
               <span style={{ fontSize: 10, color: C.mute, width: 20, textAlign: "right", ...agate }}>
                 {new Date(g.date + "T12:00:00").getDate()}
               </span>
