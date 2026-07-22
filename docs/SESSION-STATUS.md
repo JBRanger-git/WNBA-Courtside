@@ -9,10 +9,11 @@ first. Lives on the **default branch** so it survives dev-branch restarts.
 
 - **App:** WNBA Courtside (React + Vite + Capacitor → Android). Package
   `uk.co.courtside.wnba`. Contact `raiappsdev@gmail.com`.
-- **Play Store:** in **Closed testing**. **v5 (versionCode 5) is the last build
-  uploaded.** Everything below (v6 + v7 + history) is **merged to default but not
-  yet built/uploaded** — it all ships in the **next local AAB build (use
-  versionCode 7)**.
+- **Play Store:** in **Closed testing**. All of v6 + v7 + history is **merged to
+  default**; a build carrying it (profile bio, "Team" label, live Wire, back-button +
+  exit dialog, quarter scores, dark-mode fix, career arcs / team history) has been
+  built and uploaded targeting **API 36 (Android 16)**. Bump `versionCode` above the
+  highest in Play Console → App bundle explorer for each new upload.
 - **Gate to production:** **12 testers** opted in for **14 continuous days**, then
   *Apply for production*. Live count is only in Play Console → Test and release →
   Testing → Closed testing (not tracked in this repo).
@@ -102,42 +103,61 @@ Manual        · backfill-history.yml (backfill_history.R → PHIST/THIST) — d
 
 ---
 
-## Local build recipe — the next AAB (v7), on your machine
+## Local build recipe — the AAB, on your machine
 
-Everything is on default now, and the icon tooling is committed, so pulls should be
-clean (no more `package.json` collisions).
+Everything is on default and the icon tooling is committed, so pulls should be clean.
+**Target API 36 (Android 16) is required by Aug 31, 2026** — the committed helper sets it.
+
+**Lesson learned:** a version-code bump alone ships nothing new. You MUST
+`git pull` + `npm run sync` so the latest web code is rebuilt and copied into
+`android/`, or the AAB ships stale UI (this is how a build once had no Career/History
+tabs even though the data had history).
 
 ```fish
 cd ~/WNBA-Courtside
 git checkout claude/wnba-android-app-4d4egw
 git pull origin claude/wnba-android-app-4d4egw
-# if a stray lockfile diff blocks the pull: git checkout -- package-lock.json && git pull
+# if a stray lockfile diff blocks the pull: git checkout -- package-lock.json; and git pull
 
-archlinux-java set java-17-openjdk        # JDK 17 required (not 21+); skip if already default
+archlinux-java set java-17-openjdk        # JDK 17 (not 21+); skip if already default
 set -x ANDROID_HOME ~/Android/Sdk
 set -x PATH $ANDROID_HOME/platform-tools $PATH
 
-sed -i 's/versionCode [0-9]*/versionCode 7/' android/app/build.gradle
 npm install --ignore-scripts              # skips native sharp build; app build doesn't need it
-npm run sync                              # web build + cap sync (registers @capacitor/app)
+npm run sync                              # REBUILD web + cap sync — don't skip this
+
+bash scripts/prep-android-api36.sh        # sets compile/target SDK 36 + suppress flag + installs API 36
+
+# bump versionCode above the highest already uploaded (Play Console → App bundle explorer):
+set -l cur (grep -oP 'versionCode\s+\K[0-9]+' android/app/build.gradle)
+sed -i "s/versionCode $cur/versionCode "(math $cur + 1)"/" android/app/build.gradle
+grep -n versionCode android/app/build.gradle
+
 cd android && ./gradlew clean bundleRelease
 jarsigner -verify app/build/outputs/bundle/release/app-release.aab   # expect "jar verified."
+grep -n 'SdkVersion' variables.gradle     # confirm compile/target = 36
 # → upload app/build/outputs/bundle/release/app-release.aab to Play Console → Closed testing
 ```
 
 On-device smoke test (things only confirmable on a device): **hardware back button**
 (levels + exit dialog), a **Wire headline tap** (opens the browser), a completed
-game's **By quarter** table, and a player's **Career** / team's **History** tab.
+game's **By quarter** table, a player's **Career** / team's **History** tab, and that the
+top masthead / bottom tab bar aren't clipped by the status/nav bars (edge-to-edge).
 
-Env gotchas (CachyOS/Arch): JDK 17 not 21+; API 35 platform + `targetSdkVersion=35`;
-custom launcher icons already in `android/app/src/main/res/mipmap-*/`; `android/` is
-gitignored & disposable (regenerate with `npx cap add android` if lost).
+Env gotchas (CachyOS/Arch): JDK 17 not 21+; **API 36 platform installed**
+(`scripts/prep-android-api36.sh` does this / see §2a of `docs/play-store-release.md`);
+if `./gradlew` errors that the Gradle plugin can't use compileSdk 36, bump AGP → 8.7.2
+in `android/build.gradle` and the Gradle wrapper → 8.9 (the script prints this). Custom
+launcher icons already in `android/app/src/main/res/mipmap-*/`; `android/` is gitignored
+& disposable (regenerate with `npx cap add android`, then re-run the prep script).
 
 ---
 
 ## Outstanding / next steps
 
-1. **Build & upload v7** (versionCode 7) — carries everything above.
+1. **Confirm the API-36 build is live in the testing track** and the "target API by
+   Aug 31, 2026" warning has cleared. For any further update: `git pull` + `npm run
+   sync` + `bash scripts/prep-android-api36.sh` + bump versionCode, then rebuild.
 2. **Testers:** 12 opted in → 14 continuous days → *Apply for production*. Launch gate.
 3. **Backlog not yet done:** full shot-coordinate scatter (pbp has `coordinate_x/y`);
    team identity/pace panel (needs a team-box/pbp fetch); college & honours on player
