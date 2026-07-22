@@ -4,8 +4,13 @@
 // snapshot — the silent-corruption traps from CLAUDE.md. Used as the gate in the
 // daily refresh workflow, where the pinned values would produce false failures.
 import { readFileSync, readdirSync } from 'fs';
-const f = readdirSync('dist/assets').find(x => x.endsWith('.js'));
-const js = readFileSync('dist/assets/' + f, 'utf8');
+// Vite splits into multiple JS chunks and the data can land in any of them, so
+// scan them all. `js` = all chunks concatenated (content checks); `maxJs` = the
+// largest single chunk (the pbp-leak size guard).
+const blobs = readdirSync('dist/assets').filter(x => x.endsWith('.js'))
+  .map(x => readFileSync('dist/assets/' + x, 'utf8'));
+const js = blobs.join('\n');
+const maxJs = Math.max(...blobs.map(b => b.length));
 const D = JSON.parse(readFileSync('src/data/app-data.json', 'utf8'));
 const usages = D.P.map(p => p[16]).filter(u => u != null);
 const checks = [
@@ -26,7 +31,10 @@ const checks = [
   ['restricted area is the top-FG% zone', D.SHOTS.LG.fg[0] === Math.max(...D.SHOTS.LG.fg) && D.SHOTS.LG.fg[0] >= 55 && D.SHOTS.LG.fg[0] <= 72],
   ['corner 3 FG% >= above-break 3 FG%',   D.SHOTS.LG.fg[3] >= D.SHOTS.LG.fg[4] - 1],
   ['bundle embeds the data',              js.length > 50000],
-  ['bundle has no raw pbp leak',          js.length < 400000],
+  // Cap is a raw-pbp-leak tripwire (pbp is ~54 MB), not a tight budget. Checks
+  // the largest chunk, with headroom for the head-to-head game log (GHIST) — a
+  // leak would still blow past this by orders of magnitude.
+  ['bundle has no raw pbp leak',          maxJs < 480000],
 ];
 let bad = 0;
 for (const [n, ok] of checks) { console.log(`  ${ok ? 'PASS' : 'FAIL'}  ${n}`); if (!ok) bad++; }

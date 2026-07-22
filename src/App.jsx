@@ -48,8 +48,10 @@ function computeTables() {
     ({ id, w, l, pct, pf, pa, diff, streak, l10, home, road, ...TEAM[id] }));
   PLAYERS = RAW.P.map(([id, name, teamId, pos, gp, mpg, ppg, rpg, apg, spg, bpg, topg, fg, tp, ft, ts, usg, tpa]) =>
     ({ id, name, teamId, pos, gp, mpg, ppg, rpg, apg, spg, bpg, topg, fg, tp, ft, ts, usg, tpa, team: TEAM[teamId], bio: BIO[id] || {}, hist: hist(PHIST, id) }));
-  GAMES = RAW.G.map(([id, date, homeId, awayId, hs, as_, net, tier, city, done]) =>
-    ({ id, date, homeId, awayId, hs, as: as_, net, tier, city, done: !!done, home: TEAM[homeId], away: TEAM[awayId] }));
+  // iso (element 10) is the tip-off as a UTC timestamp when the feed has a real
+  // time; absent on older snapshots and TBD fixtures. Rendered in local time.
+  GAMES = RAW.G.map(([id, date, homeId, awayId, hs, as_, net, tier, city, done, iso]) =>
+    ({ id, date, homeId, awayId, hs, as: as_, net, tier, city, done: !!done, iso: iso || "", home: TEAM[homeId], away: TEAM[awayId] }));
   GAME = Object.fromEntries(GAMES.map(g => [g.id, g]));
   // link is optional (older/preserved snapshots omit it) — the Wire renders a
   // plain, non-clickable headline when it's absent. Never fabricate one.
@@ -170,6 +172,16 @@ const fmtDate = (iso) => {
   return d.toLocaleDateString("en-US", { month: "short", day: "numeric" }).toUpperCase();
 };
 
+// Tip-off in the viewer's own timezone. `iso` is a UTC timestamp from the feed;
+// returns "" when it's absent (older snapshots / TBD fixtures) so the caller
+// simply renders nothing rather than a fabricated time.
+const fmtLocalTime = (iso) => {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return "";
+  return d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+};
+
 export default function CourtsideApp() {
   const [tab, setTab] = useState("home");
   const [stack, setStack] = useState(null); // {type:'team'|'player', id}
@@ -217,6 +229,9 @@ export default function CourtsideApp() {
 
   const open = (type, id) => { setSearch(false); setStack({ type, id }); };
   const back = () => setStack(null);
+  // Headless-testing hook, matching window.__courtsideBack above: lets a screenshot
+  // harness jump straight to a team/player/game page (no hardware nav on web).
+  if (typeof window !== "undefined") window.__courtsideOpen = open;
 
   return (
     <div style={{ background: C.page, color: C.text, height: "100%", display: "flex", flexDirection: "column", position: "relative", overflow: "hidden", fontFamily: BODY }}>
@@ -237,7 +252,7 @@ export default function CourtsideApp() {
         stack.type === "team"
           ? <TeamDetail team={TEAM[stack.id]} onBack={back} openPlayer={(id) => open("player", id)} openGame={(id) => open("game", id)} />
           : stack.type === "game"
-            ? <GameDetail game={GAME[stack.id]} onBack={back} openTeam={(id) => open("team", id)} openPlayer={(id) => open("player", id)} />
+            ? <GameDetail game={GAME[stack.id]} onBack={back} openTeam={(id) => open("team", id)} openPlayer={(id) => open("player", id)} openGame={(id) => open("game", id)} />
             : <PlayerDetail player={PLAYERS.find(p => p.id === stack.id)} onBack={back} openTeam={(id) => open("team", id)} />
       ) : (
         <>
@@ -633,9 +648,10 @@ function ScheduleScreen({ open }) {
     return Object.entries(m);
   }, []);
   const upcoming = days.reduce((n, [, gs]) => n + gs.length, 0);
+  const anyTimes = days.some(([, gs]) => gs.some(g => g.iso));
   return (
     <>
-      <Masthead title="Schedule" sub={`${upcoming} upcoming`} />
+      <Masthead title="Schedule" sub={`${upcoming} upcoming${anyTimes ? " · times local" : ""}`} />
       <div className="noscroll" style={{ flex: 1, overflowY: "auto", padding: "0 14px 12px" }}>
         {days.length === 0 && (
           <div style={{ textAlign: "center", color: C.mute, fontSize: 12, padding: "40px 0" }}>
@@ -658,7 +674,10 @@ function ScheduleScreen({ open }) {
                 <div style={{ textAlign: "right", minWidth: 74 }}>
                   {awaiting
                     ? <div style={{ fontSize: 8.5, fontWeight: 700, letterSpacing: .5, textTransform: "uppercase", color: C.sec, border: `1px solid ${C.border}`, borderRadius: 2, padding: "2px 5px", display: "inline-block" }}>Awaiting data</div>
-                    : <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: .5, textTransform: "uppercase", color: g.tier === "N" ? C.accent : C.mute, border: g.tier === "N" ? `1px solid ${C.accent}` : "none", borderRadius: 2, padding: g.tier === "N" ? "2px 5px" : 0, display: "inline-block" }}>{g.net.replace("WNBA ", "")}</div>}
+                    : <>
+                        {fmtLocalTime(g.iso) && <div style={{ fontFamily: DISPLAY, fontSize: 13, fontWeight: 600, color: C.text, ...agate }}>{fmtLocalTime(g.iso)}</div>}
+                        <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: .5, textTransform: "uppercase", color: g.tier === "N" ? C.accent : C.mute, border: g.tier === "N" ? `1px solid ${C.accent}` : "none", borderRadius: 2, padding: g.tier === "N" ? "2px 5px" : 0, display: "inline-block", marginTop: fmtLocalTime(g.iso) ? 2 : 0 }}>{g.net.replace("WNBA ", "")}</div>
+                      </>}
                   <div style={{ fontSize: 9, color: C.mute, marginTop: 3 }}>{g.city}</div>
                 </div>
               </div>
@@ -737,12 +756,94 @@ function QuarterScores({ g, line }) {
   );
 }
 
+// Prior meetings between the two clubs, most recent first. Merges the historical
+// game log (GHIST — completed PAST seasons, from the backfill) with this season's
+// completed meetings (from GAMES), so it degrades to just this season before the
+// backfill has run, and renders nothing when the two have never met. Historical
+// rows aren't in GAME, so only this season's meetings are clickable.
+function HeadToHead({ g, openGame }) {
+  const a = g.awayId, h = g.homeId;
+  const isPair = (x, y) => (x === a && y === h) || (x === h && y === a);
+  const hist = (RAW.GHIST || [])
+    .filter(([, hid, aid]) => isPair(hid, aid))
+    .map(([date, hid, aid, hs, as_, st]) => ({ date, homeId: hid, awayId: aid, hs, as: as_, po: st === 3, id: null }));
+  const cur = GAMES
+    .filter(x => x.done && x.id !== g.id && isPair(x.homeId, x.awayId))
+    .map(x => ({ date: x.date, homeId: x.homeId, awayId: x.awayId, hs: x.hs, as: x.as, po: false, id: x.id }));
+  const all = [...hist, ...cur]
+    .filter(m => TEAM[m.homeId] && TEAM[m.awayId])
+    .sort((p, q) => p.date < q.date ? 1 : p.date > q.date ? -1 : 0);
+  if (!all.length) return null;
+
+  // Series tally between the two clubs across everything shown.
+  let hWins = 0, aWins = 0;
+  for (const m of all) {
+    const winId = m.hs > m.as ? m.homeId : m.awayId;
+    if (winId === h) hWins++; else if (winId === a) aWins++;
+  }
+  const lead = hWins === aWins
+    ? `Series tied ${hWins}–${aWins}`
+    : `${(hWins > aWins ? g.home : g.away).abbr} lead ${Math.max(hWins, aWins)}–${Math.min(hWins, aWins)}`;
+  const yr = (d) => d.slice(0, 4);
+  const span = all.length > 1 && yr(all[all.length - 1].date) !== yr(all[0].date)
+    ? `${yr(all[all.length - 1].date)}–${yr(all[0].date)}` : yr(all[0].date);
+  const shown = all.slice(0, 12);
+
+  return (
+    <>
+      <SectionHead action={`${all.length} meeting${all.length > 1 ? "s" : ""} · ${span}`}>Head-to-head</SectionHead>
+      <div style={{ textAlign: "center", padding: "3px 0 9px" }}>
+        <span style={{ fontFamily: DISPLAY, fontSize: 15, fontWeight: 700, letterSpacing: .5, textTransform: "uppercase", color: C.text, ...agate }}>{lead}</span>
+      </div>
+      <table style={{ width: "100%", borderCollapse: "collapse" }}>
+        <tbody>
+          {shown.map((m, i) => {
+            const home = TEAM[m.homeId], away = TEAM[m.awayId];
+            const homeWon = m.hs > m.as;
+            const clickable = m.id != null && openGame;
+            return (
+              <tr key={(m.id || "h") + i} onClick={clickable ? () => openGame(m.id) : undefined}
+                  style={{ background: i % 2 ? C.stripe : "transparent", borderBottom: `1px solid ${C.border}`, cursor: clickable ? "pointer" : "default" }}>
+                <td style={{ ...tdStyle, textAlign: "left", color: C.sec, whiteSpace: "nowrap", paddingRight: 6 }}>
+                  {new Date(m.date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                  {" ’" + m.date.slice(2, 4)}
+                  {m.po && <span style={{ color: C.accent, fontWeight: 700, marginLeft: 4, fontSize: 8.5, letterSpacing: .5 }}>PO</span>}
+                </td>
+                <td style={{ ...tdStyle, textAlign: "right", fontWeight: !homeWon ? 700 : 400, color: !homeWon ? C.text : C.sec }}>
+                  <span style={{ display: "inline-flex", alignItems: "center", gap: 5, justifyContent: "flex-end" }}>
+                    {away.abbr}<span style={{ width: 3, height: 11, background: away.color, flexShrink: 0 }} />
+                  </span>
+                </td>
+                <td style={{ ...tdStyle, textAlign: "center", whiteSpace: "nowrap", width: 60 }}>
+                  <b style={{ fontWeight: !homeWon ? 700 : 400, color: !homeWon ? C.text : C.sec }}>{m.as}</b>
+                  <span style={{ color: C.mute }}>&nbsp;–&nbsp;</span>
+                  <b style={{ fontWeight: homeWon ? 700 : 400, color: homeWon ? C.text : C.sec }}>{m.hs}</b>
+                </td>
+                <td style={{ ...tdStyle, textAlign: "left", fontWeight: homeWon ? 700 : 400, color: homeWon ? C.text : C.sec }}>
+                  <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
+                    <span style={{ width: 3, height: 11, background: home.color, flexShrink: 0 }} />{home.abbr}
+                  </span>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+      {all.length > shown.length && (
+        <div style={{ fontSize: 9.5, color: C.mute, textAlign: "center", padding: "6px 0 0" }}>
+          Showing the {shown.length} most recent of {all.length}
+        </div>
+      )}
+    </>
+  );
+}
+
 // ============================================================================
 // Game page. Final score, each club's season form, and — for completed games
 // whose box detail is in the bundle (GAMEBOX) — a team box comparison and each
 // side's top performers. Recent live-topped games have no box yet and fall back
 // to the light view. Everything links through to team and player pages.
-function GameDetail({ game: g, onBack, openTeam, openPlayer }) {
+function GameDetail({ game: g, onBack, openTeam, openPlayer, openGame }) {
   if (!g || !g.home || !g.away) return null;
   const awaySt = STANDINGS.find(s => s.id === g.awayId) || {};
   const homeSt = STANDINGS.find(s => s.id === g.homeId) || {};
@@ -775,6 +876,7 @@ function GameDetail({ game: g, onBack, openTeam, openPlayer }) {
 
         <div style={{ display: "flex", flexWrap: "wrap", gap: "4px 18px", padding: "12px 2px 2px", fontSize: 11, color: C.sec }}>
           <span style={{ color: C.text, fontWeight: 500 }}>{dateLabel}</span>
+          {!g.done && fmtLocalTime(g.iso) && <span style={{ color: C.text, fontWeight: 500 }}>{fmtLocalTime(g.iso)} <span style={{ color: C.mute, fontWeight: 400 }}>local</span></span>}
           {g.city && <span>{g.city}</span>}
           {g.net && <span>{g.net.replace("WNBA ", "")}</span>}
         </div>
@@ -863,6 +965,8 @@ function GameDetail({ game: g, onBack, openTeam, openPlayer }) {
             ))}
           </tbody>
         </table>
+
+        <HeadToHead g={g} openGame={openGame} />
 
         {(!g.done || !gb) && (
           <div style={{ fontSize: 9.5, color: C.mute, textAlign: "center", padding: "16px 8px 0", lineHeight: 1.5 }}>

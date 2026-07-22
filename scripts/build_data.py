@@ -87,10 +87,17 @@ def build(csv_dir: Path, out_dir: Path):
             skipped += 1; continue
         b = box.get(g["game_id"], {})
         done = "home" in b and "away" in b
+        # Tip-off as a UTC ISO string (element 10, optional). The app renders it in
+        # the viewer's local timezone. Blank unless the schedule carries a real time
+        # (time_valid FALSE = TBD → ESPN parks it at 00:00Z; a blank beats a wrong
+        # midnight kickoff). Older snapshots have no game_datetime column → "".
+        dt = (g.get("game_datetime") or "").strip()
+        tv = str(g.get("time_valid", "")).strip().upper()
+        iso = dt if ("T" in dt and tv != "FALSE") else ""
         G.append([g["game_id"], g["game_date"], int(g["home_team_id"]), int(g["away_team_id"]),
                   b.get("home") if done else None, b.get("away") if done else None,
                   g["broadcast_name"], "N" if g["broadcast_name"] in NATIONAL else "L",
-                  g["venue_address_city"], 1 if done else 0])
+                  g["venue_address_city"], 1 if done else 0, iso])
     G.sort(key=lambda r:r[1])
     completed = sum(r[9] for r in G)
     print(f"  games          {len(G)}  ({completed} completed, {len(G)-completed} upcoming, {skipped} teamless skipped)")
@@ -366,11 +373,39 @@ def build(csv_dir: Path, out_dir: Path):
         THIST = {int(k): v for k, v in (PREV.get("THIST") or {}).items() if int(k) in keep_teams}
         print(f"  team history    {len(THIST)}  (preserved — no fact_team_season.csv)")
 
+    # --- head-to-head history (GHIST) ----------------------------------------
+    # A compact game log of PAST seasons (season < current) so a matchup page can
+    # show prior meetings between the two clubs and their scores. The current
+    # season's meetings live in G and are merged in by the app, so they're excluded
+    # here (no double-count). Row: [date, home_id, away_id, home_score, away_score,
+    # season_type] (season_type 3 = playoffs). Populated by the backfill
+    # (fact_games_hist.csv), PRESERVED from PREV on daily runs that lack it — the
+    # same contract as PHIST/THIST. Both clubs must still exist today (the app can
+    # only render team_ids it has in T).
+    gh_rows = _opt("fact_games_hist.csv")
+    if gh_rows:
+        GHIST = []
+        for r in gh_rows:
+            try:
+                yr, hid, aid = int(r["season"]), int(r["home_id"]), int(r["away_id"])
+                hs, as_ = int(num(r["home_score"])), int(num(r["away_score"]))
+            except (ValueError, TypeError, KeyError): continue
+            if cur_season and yr >= cur_season: continue
+            if hid not in keep_teams or aid not in keep_teams: continue
+            st = 3 if str(r.get("season_type", "")).strip() == "3" else 2
+            GHIST.append([(r.get("game_date") or "")[:10], hid, aid, hs, as_, st])
+        GHIST.sort(key=lambda x: x[0])
+        pairs = len({tuple(sorted((r[1], r[2]))) for r in GHIST})
+        print(f"  head-to-head    {len(GHIST)} past games across {pairs} club pairings")
+    else:
+        GHIST = PREV.get("GHIST") or []
+        print(f"  head-to-head    {len(GHIST)}  (preserved — no fact_games_hist.csv)")
+
     payload = {"meta":{"totalGames":len(G), "completedGames":completed,
                        "leagueAvgPpg":round(sum(int(r["team_score"]) for r in tbox)/len(tbox),1),
                        "lastGame":max((r[1] for r in G if r[9]), default=None), "season":cur_season},
                "T":T,"S":S,"P":P,"G":G,"N":N,"BIO":BIO,"TEAM_BIO":TEAM_BIO,"SHOTS":SHOTS,"GB":GB,"GL":GL,
-               "PHIST":PHIST,"THIST":THIST}
+               "PHIST":PHIST,"THIST":THIST,"GHIST":GHIST}
     dst = out_dir/"app-data.json"
     dst.write_text(json.dumps(payload, separators=(",",":")))
     kb = dst.stat().st_size/1024
