@@ -502,7 +502,12 @@ function HomeScreen({ open, onSearch }) {
             <th style={thStyle}>GB</th><th style={thStyle}>DIFF</th><th style={{ ...thStyle, textAlign: "center" }}>STRK</th>
           </tr></thead>
           <tbody>
-            {rows.map((s, i) => (
+            {rows.map((s, i) => {
+              // DIFF is shown per game (= PF − PA), not the season total — it's
+              // comparable across teams that have played different game counts, and
+              // consistent with the per-game PF/PA columns.
+              const pd = Math.round((s.pf - s.pa) * 10) / 10;
+              return (
               <tr key={s.id} onClick={() => open("team", s.id)} style={{ background: i % 2 ? C.stripe : "transparent", cursor: "pointer", borderBottom: (conf === "All" && i === 7) ? `2px dashed ${C.accent}` : `1px solid ${C.border}` }}>
                 <td style={{ ...tdStyle, textAlign: "center", color: i < 8 ? C.accent : C.mute, fontWeight: 700, fontSize: 10 }}>{i + 1}</td>
                 <td style={{ ...tdStyle, textAlign: "left" }}>
@@ -514,10 +519,10 @@ function HomeScreen({ open, onSearch }) {
                 <td style={tdStyle}>{s.w}</td><td style={tdStyle}>{s.l}</td>
                 <td style={tdStyle}>{s.pct.toFixed(3).replace(/^0/, "")}</td>
                 <td style={{ ...tdStyle, color: C.sec }}>{s.gb === 0 ? "–" : s.gb}</td>
-                <td style={{ ...tdStyle, color: s.diff > 0 ? C.good : C.bad }}>{s.diff > 0 ? "+" : ""}{s.diff}</td>
+                <td style={{ ...tdStyle, color: pd > 0 ? C.good : pd < 0 ? C.bad : C.sec }}>{pd > 0 ? "+" : ""}{pd.toFixed(1)}</td>
                 <td style={{ ...tdStyle, textAlign: "center", fontWeight: 700, color: s.streak[0] === "W" ? C.good : C.bad }}>{s.streak}</td>
               </tr>
-            ))}
+            );})}
           </tbody>
         </table>
         {conf === "All" && <div style={{ fontSize: 8.5, color: C.accent, letterSpacing: .8, textTransform: "uppercase", fontWeight: 700, textAlign: "right", paddingTop: 4 }}>— playoff line, top 8</div>}
@@ -1000,7 +1005,7 @@ function SubTabs({ tabs, active, set }) {
   );
 }
 
-function TeamDetail({ team, onBack, openPlayer }) {
+function TeamDetail({ team, onBack, openPlayer, openGame }) {
   const [sub, setSub] = useState("Overview");
   const s = STANDINGS.find(x => x.id === team.id);
   const roster = PLAYERS.filter(p => p.teamId === team.id).sort((a, b) => b.ppg - a.ppg);
@@ -1021,7 +1026,8 @@ function TeamDetail({ team, onBack, openPlayer }) {
           <SectionHead>Season</SectionHead>
           <StatGrid items={[
             ["Win %", s.pct.toFixed(3).replace(/^0/, "")], ["Pts For", s.pf], ["Pts Against", s.pa],
-            ["Point Diff", (s.diff > 0 ? "+" : "") + s.diff], ["Home", s.home], ["Road", s.road],
+            ["Point Diff", (() => { const d = Math.round((s.pf - s.pa) * 10) / 10; return (d > 0 ? "+" : "") + d.toFixed(1); })()],
+            ["Home", s.home], ["Road", s.road],
             ["Last 10", s.l10], ["Streak", s.streak],
           ]} />
           <SectionHead action="league avg 86.3">Scoring</SectionHead>
@@ -1054,7 +1060,7 @@ function TeamDetail({ team, onBack, openPlayer }) {
             </tbody>
           </table>
         </>}
-        {sub === "Games" && <TeamSeason team={team} />}
+        {sub === "Games" && <TeamSeason team={team} openGame={openGame} />}
         {sub === "History" && <TeamHistory team={team} />}
       </div>
     </>
@@ -1308,7 +1314,7 @@ function TeamBio({ team }) {
 // been going?" (newest first) and "what's next?" (soonest first). One
 // chronological list answers neither well — you land in May and scroll past two
 // months of history to find tonight. Split the sort, keep the data.
-function TeamSeason({ team }) {
+function TeamSeason({ team, openGame }) {
   const all = useMemo(() => {
     const gs = GAMES.filter(g => g.homeId === team.id || g.awayId === team.id)
       .sort((a, b) => a.date.localeCompare(b.date));
@@ -1372,7 +1378,7 @@ function TeamSeason({ team }) {
         <div key={month + gs[0].g.id}>
           <div style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: 1.2, textTransform: "uppercase", color: C.sec, padding: "11px 0 4px", borderBottom: `1.5px solid ${C.rule}` }}>{month}</div>
           {gs.map(({ g, isHome, us, them, won, opp, rec, margin }) => (
-            <div key={g.id} style={{ display: "flex", alignItems: "center", gap: 7, padding: "8px 0", borderBottom: `1px solid ${C.border}` }}>
+            <div key={g.id} onClick={() => openGame?.(g.id)} style={{ display: "flex", alignItems: "center", gap: 7, padding: "8px 0", borderBottom: `1px solid ${C.border}`, cursor: openGame ? "pointer" : "default" }}>
               <span style={{ fontSize: 10, color: C.mute, width: 20, textAlign: "right", ...agate }}>
                 {new Date(g.date + "T12:00:00").getDate()}
               </span>
@@ -1382,7 +1388,7 @@ function TeamSeason({ team }) {
               {g.done ? (
                 <>
                   <span style={{ fontSize: 10, fontWeight: 700, color: won ? C.good : C.bad, width: 11 }}>{won ? "W" : "L"}</span>
-                  <span style={{ fontFamily: DISPLAY, fontSize: 13, fontWeight: 600, width: 46, textAlign: "right", ...agate }}>{us}–{them}</span>
+                  <span style={{ fontFamily: DISPLAY, fontSize: 13, fontWeight: 600, width: 56, textAlign: "right", whiteSpace: "nowrap", ...agate }}>{us}–{them}</span>
                   <span style={{ fontSize: 9, color: C.mute, width: 28, textAlign: "right", ...agate }}>{rec}</span>
                 </>
               ) : (
