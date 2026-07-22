@@ -77,9 +77,16 @@ It needs `* 100` like the other pct columns — unlike `fg_pct`/`three_pct`, whi
 are *also* fractions. Everything in that table is a fraction. (This already cost
 us one bug where A'ja Wilson rendered as 0.2% usage.)
 
-**`dim_games` contains the All-Star Game** with `home_display_name = "TBD"` and
-no team IDs. Filter it out of anything team-scoped or it renders as a phantom
-fixture against a nonexistent club.
+**`dim_games` contains the All-Star Game.** Early in the season it appears with
+`home_display_name = "TBD"` and no team IDs; **as the game approaches the feed
+NAMES the squads and assigns synthetic team IDs** (e.g. 133383 / 133384) that
+aren't real clubs. So the `"TBD"` test alone is NOT enough — `build_data.py`
+filters games by **real-club membership** (team IDs present in `dim_teams` / `T`),
+which catches both forms. Miss it and the app looks up an unknown team, gets
+`undefined`, and the **Schedule screen crashes to blank** (this shipped once —
+July 2026, All-Star in Chicago). `App.jsx` also drops unresolved-team games as a
+backstop, and `smoke.mjs` asserts every game's teams are real clubs (a truthy-ID
+check isn't enough — the synthetic IDs are truthy).
 
 **`dim_teams` is a *current* snapshot.** Golden State (129689) joined in 2025;
 Toronto (131935) and Portland (132052) are 2026 expansion. Any historical view
