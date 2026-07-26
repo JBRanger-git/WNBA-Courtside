@@ -88,6 +88,26 @@ July 2026, All-Star in Chicago). `App.jsx` also drops unresolved-team games as a
 backstop, and `smoke.mjs` asserts every game's teams are real clubs (a truthy-ID
 check isn't enough — the synthetic IDs are truthy).
 
+**The escalation: the leak reaches upstream of `build_data.py` entirely.**
+`fetch_wnba.R`'s `regular()` keeps only `season_type == 2` rows, on the
+assumption that's "regular season only" — but ESPN tags the All-Star Game's
+`player_box`/`schedule` rows `season_type == 2` as well, so `regular()` doesn't
+drop it. The named draft squads ("Team Spoon", "Team Coop" — captain-drafted,
+different names every year) then flow straight into `dim_teams.csv` and
+`fact_player_season.csv`. Once they're in `dim_teams`, the `build_data.py`
+real-club-membership filter above stops working too, because the synthetic
+teams now *are* members of `T` — so they showed up as two extra rows in the
+team list and standings (undefeated 1-0 "TEAM SPOON" in the league table), and
+any All-Star participant's season averages were quietly diluted by one extra
+game. Fixed in `fetch_wnba.R` by excluding rows upstream of every derived
+table, keyed on a signal that survives the yearly name change: a real club
+always has a brand color and a normal display name; an All-Star squad has an
+empty `team_color` and a `"Team <captain>"` name. `build_data.py` also gained
+a belt-and-suspenders backstop — `T` is now filtered to `CONFERENCE`
+membership (the hardcoded list of real franchises already used for East/West),
+and `S`/`P` are filtered to `T`'s team ids. `smoke_refresh.mjs` asserts
+`D.T.length <= 16` so a future leak like this fails CI instead of shipping.
+
 **`dim_teams` is a *current* snapshot.** Golden State (129689) joined in 2025;
 Toronto (131935) and Portland (132052) are 2026 expansion. Any historical view
 must use season-scoped team data (`dim_team_season`), never this table.

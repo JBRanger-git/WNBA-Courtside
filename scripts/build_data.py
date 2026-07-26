@@ -63,13 +63,24 @@ def build(csv_dir: Path, out_dir: Path):
     dp = csv_dir/"dim_players.csv"; players_raw = read(dp) if dp.exists() else None
     dn = csv_dir/"dim_news.csv";    news_raw    = read(dn) if dn.exists() else None
 
+    # FIX: dim_teams is supposed to be regular-club-only, but the All-Star Game's
+    # draft squads ("Team Spoon", "Team Coop"...) share the feed's season_type
+    # with real games, so fetch_wnba.R's own filter can miss them (see CLAUDE.md).
+    # CONFERENCE is the canonical list of real franchises — anything not in it
+    # is not a club, backstop-dropped here so a leak upstream can't put a
+    # synthetic squad in the team list, standings, or (via team_ids below) the
+    # schedule.
     T = [[int(t["team_id"]), t["abbreviation"], t["team_display_name"], t["team_short_name"],
-          "#"+t["color"].lstrip("#"), CONFERENCE.get(t["team_display_name"])] for t in teams_raw]
+          "#"+t["color"].lstrip("#"), CONFERENCE[t["team_display_name"]]]
+         for t in teams_raw if t["team_display_name"] in CONFERENCE]
     print(f"  teams          {len(T)}")
+
+    team_ids = {r[0] for r in T}   # real clubs (this season's snapshot)
 
     S = sorted([[int(s["team_id"]), int(s["wins"]), int(s["losses"]), round(num(s["win_pct"]),3),
                  num(s["ppg_for"]), num(s["ppg_against"]), int(s["point_differential"]),
-                 s["streak"], s["last_ten"], s["home_record"], s["road_record"]] for s in stand_raw],
+                 s["streak"], s["last_ten"], s["home_record"], s["road_record"]]
+                for s in stand_raw if int(s["team_id"]) in team_ids],
                key=lambda r:-r[3])
     print(f"  standings      {len(S)}")
 
@@ -78,8 +89,6 @@ def build(csv_dir: Path, out_dir: Path):
     # score exists. Scores come from fact_team_box, never dim_games.
     box = defaultdict(dict)
     for r in tbox: box[r["game_id"]][r["team_home_away"]] = int(r["team_score"])
-
-    team_ids = {r[0] for r in T}   # real clubs (this season's snapshot)
     G, skipped = [], 0
     for g in games_raw:
         # FIX: dim_games carries the All-Star Game. It USED to appear with home/away
@@ -131,7 +140,11 @@ def build(csv_dir: Path, out_dir: Path):
     P = []
     for p in season_raw:
         gp = int(p["games_played"])
-        if gp < MIN_GP: continue
+        # Backstop: fetch_wnba.R already excludes All-Star-squad rows before
+        # aggregating fact_player_season, but a player whose primary team
+        # somehow resolved to a non-club (synthetic All-Star team_id) should
+        # still never surface here — matches the T/S/G real-club filtering above.
+        if gp < MIN_GP or int(p["team_id"]) not in team_ids: continue
         P.append([int(p["athlete_id"]), p["athlete_display_name"], int(p["team_id"]),
                   p["athlete_position_abbreviation"] or "G", gp,
                   round(num(p["mpg"]),1), round(num(p["ppg"]),1), round(num(p["rpg"]),1), round(num(p["apg"]),1),

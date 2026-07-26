@@ -101,6 +101,22 @@ stopifnot(nrow(player_box) > 0, nrow(sched) > 0)
 
 pb <- regular(player_box)
 sc <- regular(sched)
+
+# The All-Star Game is tagged season_type == 2 (regular season) by the feed —
+# regular() above does NOT exclude it. Its draft-style squads (e.g. "Team
+# Spoon", "Team Coop") are not real franchises: they have a display name of
+# the form "Team <captain>" and, unlike every real club, no brand color in
+# the feed. Filter them out here, upstream of every derived table (teams,
+# standings, player-season aggregates), so the one-off exhibition can't
+# inflate a real player's games_played/ppg or show up as a league team. This
+# is a name/color signal rather than a hardcoded ID list because the synthetic
+# team_ids change every year (2026's are 133383/133384; CLAUDE.md).
+is_allstar_name  <- function(name)  is.na(name) | name == "TBD" | grepl("^Team\\s", name)
+is_allstar_squad <- function(name, color) is_allstar_name(name) | is.na(color) | color == ""
+
+pb <- dplyr::filter(pb, !is_allstar_squad(team_display_name, team_color))
+sc <- dplyr::filter(sc, !is_allstar_name(home_display_name) & !is_allstar_name(away_display_name))
+
 message("regular-season rows — player_box: ", nrow(pb), "  schedule: ", nrow(sc),
         "  distinct teams: ", dplyr::n_distinct(pb$team_id))
 # Guard: if the integer64 IDs failed to materialise they come back all-NA and
