@@ -15,6 +15,10 @@ const D = JSON.parse(readFileSync('src/data/app-data.json', 'utf8'));
 const usages = D.P.map(p => p[16]).filter(u => u != null);
 const checks = [
   ['teams present',                       D.T.length >= 12],
+  // WNBA franchise count grows slowly (expansion, not weekly). This is the
+  // check that would have caught "Team Spoon"/"Team Coop" (All-Star draft
+  // squads) leaking into the team list as if they were real clubs.
+  ['team count is sane (no synthetic squads)', D.T.length <= 16],
   ['standings sorted by win pct',         D.S[0][3] >= D.S[D.S.length - 1][3]],
   ['games reference only real clubs (All-Star filtered)',
     (() => { const ids = new Set(D.T.map(t => t[0])); return D.G.every(g => ids.has(g[2]) && ids.has(g[3])); })()],
