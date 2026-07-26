@@ -30,11 +30,12 @@ import { Home, Shield, Users, CalendarDays, ChevronLeft, ChevronRight, Search, M
 // fresher snapshot arriving mid-session swaps the whole app's data with one
 // re-render. Components read these module bindings at render time, so
 // reassigning them here is all that's needed — no prop/context threading.
-let RAW, BIO, TEAM_BIO, SHOTS, GAMEBOX, GAMELINE, TEAMS, TEAM, STANDINGS, PLAYERS, GAMES, GAME, NEWS;
+let RAW, BIO, TEAM_BIO, INJ, SHOTS, GAMEBOX, GAMELINE, TEAMS, TEAM, STANDINGS, PLAYERS, GAMES, GAME, NEWS;
 function computeTables() {
   RAW = getData();
   BIO = RAW.BIO || {};
   TEAM_BIO = RAW.TEAM_BIO || {};
+  INJ = RAW.INJ || {};   // injury status by player id, absent means nothing reported
   SHOTS = RAW.SHOTS || { LG: null, P: {} };   // null when fact_pbp is absent
   GAMEBOX = RAW.GB || {};                      // per-game box detail, keyed by game id (completed games)
   GAMELINE = RAW.GL || {};                     // per-quarter scores, keyed by game id (reconciled to final)
@@ -47,7 +48,7 @@ function computeTables() {
   STANDINGS = RAW.S.map(([id, w, l, pct, pf, pa, diff, streak, l10, home, road]) =>
     ({ id, w, l, pct, pf, pa, diff, streak, l10, home, road, ...TEAM[id] }));
   PLAYERS = RAW.P.map(([id, name, teamId, pos, gp, mpg, ppg, rpg, apg, spg, bpg, topg, fg, tp, ft, ts, usg, tpa]) =>
-    ({ id, name, teamId, pos, gp, mpg, ppg, rpg, apg, spg, bpg, topg, fg, tp, ft, ts, usg, tpa, team: TEAM[teamId], bio: BIO[id] || {}, hist: hist(PHIST, id) }));
+    ({ id, name, teamId, pos, gp, mpg, ppg, rpg, apg, spg, bpg, topg, fg, tp, ft, ts, usg, tpa, team: TEAM[teamId], bio: BIO[id] || {}, hist: hist(PHIST, id), inj: INJ[id] || INJ[String(id)] || null }));
   // iso (element 10) is the tip-off as a UTC timestamp when the feed has a real
   // time; absent on older snapshots and TBD fixtures. Rendered in local time.
   // Drop any game whose clubs don't resolve (e.g. the All-Star Game's synthetic
@@ -527,6 +528,25 @@ function SectionHead({ children, action }) {
   );
 }
 // thStyle / tdStyle are defined by applyTheme() above so they re-theme on mode switch.
+
+// Injury status pill. Renders the source's exact status text — never abbreviated
+// or paraphrased, so "Day-To-Day" can't quietly read as "Doubtful". Colour is
+// only a severity hint: red for "Out"/"Injured Reserve", accent (the app's
+// existing "notable flag" colour — same one on national-TV and playoff tags)
+// for everything else, e.g. Day-To-Day/Questionable.
+function InjuryTag({ inj, size = "sm" }) {
+  if (!inj || !inj.status) return null;
+  const severe = /out|reserve/i.test(inj.status);
+  const color = severe ? C.bad : C.accent;
+  const big = size === "lg";
+  return (
+    <span style={{
+      display: "inline-block", marginLeft: big ? 0 : 5, fontWeight: 700, textTransform: "uppercase",
+      color, border: `1px solid ${color}`, borderRadius: 2,
+      fontSize: big ? 9 : 7.5, letterSpacing: big ? .6 : .4, padding: big ? "2px 6px" : "1px 4px",
+    }}>{inj.status}</span>
+  );
+}
 
 // A Wire headline. Clickable → opens the ESPN story externally when a link is
 // present (Capacitor routes non-allowlisted hosts to the system browser; on the
@@ -1243,7 +1263,10 @@ function TeamDetail({ team, onBack, openPlayer, openGame }) {
             <tbody>
               {roster.map((p, i) => (
                 <tr key={p.id} className="tap" onClick={() => openPlayer(p.id)} style={{ background: i % 2 ? C.stripe : "transparent", borderBottom: `1px solid ${C.border}`, cursor: "pointer" }}>
-                  <td style={{ ...tdStyle, textAlign: "left", fontSize: 11 }}>{p.name}<span style={{ color: C.mute, fontSize: 9, marginLeft: 3 }}>{p.pos}</span></td>
+                  <td style={{ ...tdStyle, textAlign: "left", fontSize: 11 }}>
+                    {p.name}<span style={{ color: C.mute, fontSize: 9, marginLeft: 3 }}>{p.pos}</span>
+                    <InjuryTag inj={p.inj} />
+                  </td>
                   <td style={tdStyle}>{p.gp}</td><td style={tdStyle}>{p.mpg}</td>
                   <td style={{ ...tdStyle, fontWeight: 700 }}>{p.ppg}</td>
                   <td style={tdStyle}>{p.rpg}</td><td style={tdStyle}>{p.apg}</td><td style={tdStyle}>{p.ts}</td>
@@ -1304,6 +1327,15 @@ function PlayerDetail({ player: p, onBack, openTeam }) {
       <SubTabs tabs={tabs} active={sub} set={setSub} />
       <div key={sub} className={"noscroll " + swipe.dir} {...swipe.handlers} style={{ flex: 1, overflowY: "auto", overflowX: "hidden", padding: "0 14px 12px" }}>
         {sub === "Profile" && <>
+          {p.inj?.status && (
+            <div style={{ display: "flex", alignItems: "center", gap: 9, padding: "10px 2px", borderBottom: `1px solid ${C.border}` }}>
+              <InjuryTag inj={p.inj} size="lg" />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                {p.inj.note && <div style={{ fontSize: 11, color: C.text, lineHeight: 1.4 }}>{p.inj.note}</div>}
+                {p.inj.updated && <div style={{ fontSize: 9, color: C.mute, marginTop: p.inj.note ? 2 : 0 }}>Updated {fmtDate(p.inj.updated)}</div>}
+              </div>
+            </div>
+          )}
           <BioStrip p={p} />
           <PlayerBlurb p={p} />
           <SectionHead action="per game">Season</SectionHead>
