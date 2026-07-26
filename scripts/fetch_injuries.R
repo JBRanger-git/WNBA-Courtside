@@ -1,61 +1,77 @@
 # =============================================================================
-# Courtside — WNBA injury status (ESPN, via wehoop). Writes
-# data/csv/dim_injuries.csv: one row per player currently on an injury report
-# (Out / Day-To-Day / Injured Reserve / etc.), so the team roster and player
-# page can show it.
+# Courtside — WNBA injury status (ESPN). Writes data/csv/dim_injuries.csv: one
+# row per player currently on an injury report (Out / Day-To-Day / Injured
+# Reserve / etc.), so the team roster and player page can show it.
 #
-# Same standing as fetch_news.R / fetch_lines.R: espn_wnba_injuries() is a
-# documented wehoop wrapper over the same site.api.espn.com family those
-# scripts already call directly, run once in this same daily batch — not a
-# new class of request, just one more field in the existing daily pull.
+# CORRECTION (see git history): this originally called wehoop's
+# espn_wnba_injuries(), which turned out not to exist in the installed
+# package — confirmed via a CI diagnostic (ls("package:wehoop") had zero
+# "injur" matches), not by more guessing. This version calls ESPN's JSON API
+# directly instead, the same technique fetch_news.R and fetch_lines.R already
+# use for their own endpoints (site.api.espn.com) — same standing, not a new
+# class of request. The exact injuries endpoint/shape for WNBA specifically
+# isn't confirmed yet either, so this is written defensively with a diagnostic
+# dump on any parse failure — the daily refresh can never break on this, and a
+# wrong guess degrades to "no injuries" instead of silently misreading data.
 #
-# FULLY DEFENSIVE: any failure (network, schema drift, empty feed, wehoop
-# quirk) logs and writes NOTHING, so build_data.py falls back to PRESERVING
-# whatever injury list it last had (or blank if none yet) rather than
-# guessing. "A blank field beats a wrong one" (CLAUDE.md). Always exits 0 —
-# this can never fail the daily refresh.
+# FULLY DEFENSIVE: any failure (network, 404, schema drift, empty feed) logs
+# and writes NOTHING, so build_data.py falls back to PRESERVING whatever
+# injury list it last had. "A blank field beats a wrong one" (CLAUDE.md).
+# Always exits 0 — this can never fail the daily refresh.
 #
-# Run:  Rscript scripts/fetch_injuries.R      (WNBA_SEASON env overrides the year)
+# Run:  Rscript scripts/fetch_injuries.R
 # =============================================================================
-suppressPackageStartupMessages({ library(wehoop); library(readr) })
+suppressPackageStartupMessages({ library(jsonlite); library(readr) })
 
 OUT <- "data/csv"; dir.create(OUT, recursive = TRUE, showWarnings = FALSE)
-SEASON <- as.integer(Sys.getenv("WNBA_SEASON", unset = format(Sys.Date(), "%Y")))
+URL <- "https://site.api.espn.com/apis/site/v2/sports/basketball/wnba/injuries"
 
-# Pick the first present column among candidate names — ESPN's injury payload
-# field names aren't pinned down by the wehoop docs, so don't bet on one guess.
-pick_any <- function(df, cands, default = NA) {
-  for (n in cands) if (n %in% names(df)) return(df[[n]])
-  rep(default, nrow(df))
-}
-chr <- function(x) if (is.null(x)) character(0) else as.character(x)
+g <- function(x, default = "")
+  if (is.null(x) || length(x) == 0 || (length(x) == 1 && is.na(x[[1]]))) default else as.character(x[[1]])
 
-inj <- tryCatch(espn_wnba_injuries(season = SEASON), error = function(e) {
-  message("  injuries fetch failed: ", conditionMessage(e)); NULL
-})
+res <- tryCatch(
+  jsonlite::fromJSON(URL, simplifyVector = FALSE),
+  error = function(e) { message("  injuries fetch failed: ", conditionMessage(e)); NULL }
+)
 
-if (is.null(inj) || !is.data.frame(inj) || nrow(inj) == 0) {
-  message("  no injuries returned — leaving dim_injuries.csv absent ",
-          "(build_data.py preserves the prior list)")
+if (is.null(res)) { quit(save = "no", status = 0) }
+
+teams <- res$injuries   # expected shape: [{team:{id,...}, injuries:[{athlete:{id,displayName},status,details:{type,returnDate},...}]}]
+if (is.null(teams) || length(teams) == 0) {
+  # DIAGNOSTIC: the endpoint responded but not with the shape we expected —
+  # log the top-level keys so a wrong guess can be fixed from one CI log
+  # instead of another round of blind guessing.
+  message("  no `injuries` array in response — top-level keys: ",
+          paste(names(res), collapse = ", "))
   quit(save = "no", status = 0)
 }
 
-df <- tryCatch({
-  data.frame(
-    athlete_id   = chr(pick_any(inj, c("athlete_id", "id"))),
-    athlete_name = chr(pick_any(inj, c("athlete_display_name", "full_name", "display_name", "athlete_name"), "")),
-    team_id      = chr(pick_any(inj, c("team_id"))),
-    status       = chr(pick_any(inj, c("status", "type", "injury_status"), "")),
-    note         = chr(pick_any(inj, c("short_comment", "long_comment", "comment", "details"), "")),
-    updated      = chr(pick_any(inj, c("date", "updated_date"), "")),
-    stringsAsFactors = FALSE
-  )
-}, error = function(e) { message("  injuries: unexpected shape — ", conditionMessage(e)); NULL })
+rows <- list()
+for (team_entry in teams) {
+  tid <- g(team_entry$team$id)
+  plist <- team_entry$injuries
+  if (is.null(plist) || length(plist) == 0) next
+  for (p in plist) {
+    rows[[length(rows) + 1]] <- data.frame(
+      athlete_id   = g(p$athlete$id),
+      athlete_name = g(p$athlete$displayName),
+      team_id      = tid,
+      status       = g(p$status),
+      note         = g(if (!is.null(p$details)) p$details$type else p$longComment),
+      updated      = g(p$date),
+      stringsAsFactors = FALSE
+    )
+  }
+}
 
-if (is.null(df)) { quit(save = "no", status = 0) }
+if (length(rows) == 0) {
+  message("  0 player rows inside the injuries payload (", length(teams), " team entries) — ",
+          "leaving dim_injuries.csv absent")
+  quit(save = "no", status = 0)
+}
 
-# Keep only rows we can actually attach to a player and a status label.
-df <- df[nzchar(df$athlete_id) & !is.na(df$athlete_id) & nzchar(df$status), , drop = FALSE]
+df <- do.call(rbind, rows)
+df <- df[nzchar(df$athlete_id) & nzchar(df$status), , drop = FALSE]
 df <- df[!duplicated(df$athlete_id), , drop = FALSE]
 
 if (nrow(df) == 0) {
@@ -64,4 +80,4 @@ if (nrow(df) == 0) {
 }
 
 write_csv(df, file.path(OUT, "dim_injuries.csv"), na = "")
-message("  dim_injuries       ", nrow(df), " player(s) on the report")
+message("  dim_injuries       ", nrow(df), " player(s) on the report across ", length(teams), " team(s)")
