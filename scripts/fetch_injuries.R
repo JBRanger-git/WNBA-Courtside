@@ -46,6 +46,15 @@ if (is.null(teams) || length(teams) == 0) {
   quit(save = "no", status = 0)
 }
 
+# status is commonly a nested {id,name,type,abbreviation} object on ESPN
+# payloads, not a plain string — pull a name-like field out of it rather than
+# assume it's atomic.
+status_text <- function(s) {
+  if (is.null(s)) return("")
+  if (is.list(s)) return(g(if (!is.null(s$type)) s$type else if (!is.null(s$name)) s$name else s[[1]]))
+  g(s)
+}
+
 rows <- list()
 for (team_entry in teams) {
   tid <- g(team_entry$team$id)
@@ -56,7 +65,7 @@ for (team_entry in teams) {
       athlete_id   = g(p$athlete$id),
       athlete_name = g(p$athlete$displayName),
       team_id      = tid,
-      status       = g(p$status),
+      status       = status_text(p$status),
       note         = g(if (!is.null(p$details)) p$details$type else p$longComment),
       updated      = g(p$date),
       stringsAsFactors = FALSE
@@ -75,7 +84,20 @@ df <- df[nzchar(df$athlete_id) & nzchar(df$status), , drop = FALSE]
 df <- df[!duplicated(df$athlete_id), , drop = FALSE]
 
 if (nrow(df) == 0) {
+  # DIAGNOSTIC: rows existed but nothing survived the athlete_id/status filter —
+  # dump the raw shape of the first team's first player entry so the real field
+  # names/types can be read off one CI log instead of guessing a third time.
   message("  no usable injury rows — leaving dim_injuries.csv absent")
+  first_team <- teams[[1]]
+  message("  DIAGNOSTIC — team entry keys: ", paste(names(first_team), collapse = ", "))
+  fp <- first_team$injuries
+  if (!is.null(fp) && length(fp) > 0) {
+    message("  DIAGNOSTIC — first player entry keys: ", paste(names(fp[[1]]), collapse = ", "))
+    message("  DIAGNOSTIC — first player entry (jsonlite::toJSON): ",
+            jsonlite::toJSON(fp[[1]], auto_unbox = TRUE, null = "null"))
+  } else {
+    message("  DIAGNOSTIC — first team's `injuries` list is empty/absent (", length(teams), " teams total)")
+  }
   quit(save = "no", status = 0)
 }
 
