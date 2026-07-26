@@ -187,6 +187,31 @@ function percentile(player, key, higherIsBetter = true) {
   return Math.round((below / peers.length) * 100);
 }
 
+// Playoff picture: seed order, clinched/eliminated, via the standard "magic
+// number" over the CURRENT top-8 cutline. The WNBA seeds all 8 spots as one
+// table (no conference split), so STANDINGS' existing pct-sorted order IS the
+// seed order. Deliberately conservative — a team is eliminated only once it
+// truly cannot catch the current 8th-place team's CURRENT win total even in
+// the best case, and a team clinches only once it's already beaten the best
+// remaining case of every challenger. This can lag the "official" number late
+// in a tight race, but it can never wrongly tag a team early — the same "a
+// blank field beats a wrong one" rule the rest of the app follows.
+function playoffPicture() {
+  const gamesLeft = (id) => GAMES.filter(g => !g.done && (g.homeId === id || g.awayId === id)).length;
+  const rows = STANDINGS.map(s => { const left = gamesLeft(s.id); return { ...s, left, maxW: s.w + left }; });
+  const eighth = rows[7];
+  const chasers = rows.slice(8);
+  const bestChallenger = chasers.length ? Math.max(...chasers.map(r => r.maxW)) : -Infinity;
+  return rows.map((s, i) => ({
+    ...s, seed: i + 1,
+    clinched: i < 8 && s.w > bestChallenger,
+    eliminated: i >= 8 && !!eighth && s.maxW < eighth.w,
+    // Games back of the 8th seed specifically (the playoff cutline), distinct
+    // from the standings table's GB-of-conference-leader.
+    gb: eighth ? Math.round((((eighth.w - s.w) + (s.l - eighth.l)) / 2) * 10) / 10 : 0,
+  }));
+}
+
 const fmtDate = (iso) => {
   const d = new Date(iso + "T12:00:00");
   return d.toLocaleDateString("en-US", { month: "short", day: "numeric" }).toUpperCase();
@@ -527,11 +552,15 @@ function NewsRow({ n }) {
 // ============================================================================
 function HomeScreen({ open, onSearch }) {
   const [conf, setConf] = useState("All");
+  const [view, setView] = useState("Standings");
   const rows = useMemo(() => {
     let r = conf === "All" ? STANDINGS : STANDINGS.filter(s => s.conf === (conf === "East" ? "East" : "West"));
     const lead = r[0];
     return r.map(s => ({ ...s, gb: s === lead ? 0 : ((lead.w - s.w) + (s.l - lead.l)) / 2 }));
   }, [conf]);
+  // seed/clinch/eliminate status by team id, for the small badge in the "All" table
+  const picture = useMemo(() => playoffPicture(), []);
+  const pic = useMemo(() => Object.fromEntries(picture.map(p => [p.id, p])), [picture]);
   const leaders = PLAYERS.filter(p => p.gp >= 10).slice(0, 5);
 
   return (
@@ -540,7 +569,17 @@ function HomeScreen({ open, onSearch }) {
       <ScoreRail open={open} />
       <div className="noscroll" style={{ flex: 1, overflowY: "auto", padding: "0 14px 12px" }}>
 
-        <SectionHead action={`${rows.length} teams`}>Standings</SectionHead>
+        <SectionHead action={view === "Standings" ? `${rows.length} teams` : undefined}>{view === "Standings" ? "Standings" : "Playoff picture"}</SectionHead>
+        <div style={{ display: "flex", gap: 0, margin: "8px 0 2px", border: `1px solid ${C.border}`, borderRadius: 3, overflow: "hidden" }}>
+          {["Standings", "Picture"].map(v => (
+            <button key={v} onClick={() => setView(v)} style={{
+              flex: 1, border: "none", padding: "6px 0", fontSize: 11, fontWeight: 700, letterSpacing: .8, textTransform: "uppercase",
+              background: view === v ? C.rule : C.visual, color: view === v ? C.onRule : C.sec, cursor: "pointer", fontFamily: BODY,
+            }}>{v}</button>
+          ))}
+        </div>
+
+        {view === "Picture" ? <PlayoffPicture picture={picture} open={open} /> : <>
         <div style={{ display: "flex", gap: 0, margin: "8px 0 2px", border: `1px solid ${C.border}`, borderRadius: 3, overflow: "hidden" }}>
           {["All", "East", "West"].map(v => (
             <button key={v} onClick={() => setConf(v)} style={{
@@ -562,6 +601,7 @@ function HomeScreen({ open, onSearch }) {
               // comparable across teams that have played different game counts, and
               // consistent with the per-game PF/PA columns.
               const pd = Math.round((s.pf - s.pa) * 10) / 10;
+              const st = conf === "All" ? pic[s.id] : null;
               return (
               <tr key={s.id} className="tap" onClick={() => open("team", s.id)} style={{ background: i % 2 ? C.stripe : "transparent", cursor: "pointer", borderBottom: (conf === "All" && i === 7) ? `2px dashed ${C.accent}` : `1px solid ${C.border}` }}>
                 <td style={{ ...tdStyle, textAlign: "center", color: i < 8 ? C.accent : C.mute, fontWeight: 700, fontSize: 10 }}>{i + 1}</td>
@@ -569,6 +609,8 @@ function HomeScreen({ open, onSearch }) {
                   <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
                     <span style={{ width: 3, height: 13, background: s.color, flexShrink: 0 }} />
                     <b style={{ fontWeight: 500 }}>{s.abbr}</b>
+                    {st?.clinched && <sup style={{ fontSize: 8, fontWeight: 700, color: C.good, marginLeft: 1 }}>z</sup>}
+                    {st?.eliminated && <sup style={{ fontSize: 8, fontWeight: 700, color: C.mute, marginLeft: 1 }}>e</sup>}
                   </span>
                 </td>
                 <td style={tdStyle}>{s.w}</td><td style={tdStyle}>{s.l}</td>
@@ -580,7 +622,11 @@ function HomeScreen({ open, onSearch }) {
             );})}
           </tbody>
         </table>
-        {conf === "All" && <div style={{ fontSize: 8.5, color: C.accent, letterSpacing: .8, textTransform: "uppercase", fontWeight: 700, textAlign: "right", paddingTop: 4 }}>— playoff line, top 8</div>}
+        {conf === "All" && <div style={{ display: "flex", justifyContent: "space-between", paddingTop: 4 }}>
+          <span style={{ fontSize: 8.5, color: C.mute, letterSpacing: .3 }}>{picture.some(p => p.clinched) ? <><sup style={{ color: C.good, fontWeight: 700 }}>z</sup> clinched</> : " "}{picture.some(p => p.eliminated) && <>{picture.some(p => p.clinched) ? "  ·  " : ""}<sup style={{ color: C.mute, fontWeight: 700 }}>e</sup> eliminated</>}</span>
+          <span style={{ fontSize: 8.5, color: C.accent, letterSpacing: .8, textTransform: "uppercase", fontWeight: 700 }}>— playoff line, top 8</span>
+        </div>}
+        </>}
 
         <SectionHead action="PPG · min 10 GP">Leaders</SectionHead>
         {leaders.map((p, i) => (
@@ -602,6 +648,68 @@ function HomeScreen({ open, onSearch }) {
         </div>
         <div style={{ fontSize: 8.5, color: C.mute, textAlign: "center", padding: "2px 0 6px", letterSpacing: .5 }}>Data updated through {fmtDate(RAW.meta.lastGame)}</div>
       </div>
+    </>
+  );
+}
+
+// The playoff picture: seed matchups if the postseason started today, who's
+// still alive on the bubble, and who's out. All derived from playoffPicture()
+// (STANDINGS + remaining GAMES) — no new data source.
+function PlayoffPicture({ picture, open }) {
+  const top8 = picture.slice(0, 8);
+  const bubble = picture.slice(8).filter(p => !p.eliminated);
+  const out = picture.slice(8).filter(p => p.eliminated);
+  const clinchedN = picture.filter(p => p.clinched).length;
+
+  const Side = ({ p }) => (
+    <button onClick={() => open("team", p.id)} style={{ flex: 1, display: "flex", alignItems: "center", gap: 7, border: "none", background: "none", padding: "10px 4px", cursor: "pointer", textAlign: "left" }}>
+      <span style={{ fontFamily: DISPLAY, fontSize: 11, fontWeight: 700, color: C.mute, width: 13, ...agate }}>{p.seed}</span>
+      <Crest team={p} size={26} />
+      <div style={{ minWidth: 0 }}>
+        <div style={{ fontSize: 12, fontWeight: 500, color: C.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.abbr}</div>
+        <div style={{ fontSize: 9.5, color: C.sec, ...agate }}>{p.w}–{p.l}</div>
+      </div>
+    </button>
+  );
+
+  return (
+    <>
+      <div style={{ fontSize: 9.5, color: C.mute, textAlign: "center", padding: "2px 0 8px", lineHeight: 1.5 }}>
+        If the playoffs started today — best-of-3 first round, seeded 1–8.
+        {clinchedN > 0 && <> <b style={{ color: C.good }}>{clinchedN}</b> clinched.</>}
+      </div>
+      {[[0, 7], [1, 6], [2, 5], [3, 4]].map(([hi, lo]) => (
+        <div key={hi} style={{ display: "flex", alignItems: "stretch", borderBottom: `1px solid ${C.border}` }}>
+          <Side p={top8[hi]} />
+          <div style={{ display: "flex", alignItems: "center", fontSize: 9, color: C.mute, fontWeight: 700 }}>VS</div>
+          <Side p={top8[lo]} />
+        </div>
+      ))}
+
+      {bubble.length > 0 && <>
+        <SectionHead>On the bubble</SectionHead>
+        {bubble.map(p => (
+          <button key={p.id} onClick={() => open("team", p.id)} className="tap" style={{ width: "100%", display: "flex", alignItems: "center", gap: 8, border: "none", borderBottom: `1px solid ${C.border}`, background: "none", padding: "7px 0", cursor: "pointer", textAlign: "left" }}>
+            <span style={{ fontFamily: DISPLAY, fontSize: 10, fontWeight: 700, color: C.mute, width: 14, ...agate }}>{p.seed}</span>
+            <span style={{ width: 3, height: 12, background: p.color, flexShrink: 0 }} />
+            <span style={{ flex: 1, fontSize: 12, color: C.text }}>{p.name}</span>
+            <span style={{ fontSize: 10.5, color: C.sec, ...agate }}>{p.w}–{p.l}</span>
+            <span style={{ fontSize: 9, color: C.mute, width: 72, textAlign: "right", whiteSpace: "nowrap" }}>{p.gb} GB · {p.left} left</span>
+          </button>
+        ))}
+      </>}
+
+      {out.length > 0 && <>
+        <SectionHead>Eliminated</SectionHead>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, padding: "8px 0 4px" }}>
+          {out.map(p => (
+            <button key={p.id} onClick={() => open("team", p.id)} style={{ display: "flex", alignItems: "center", gap: 5, border: `1px solid ${C.border}`, borderRadius: 3, background: "none", padding: "4px 8px", cursor: "pointer" }}>
+              <span style={{ width: 3, height: 10, background: p.color, flexShrink: 0 }} />
+              <span style={{ fontSize: 10.5, color: C.mute, fontWeight: 500 }}>{p.abbr}</span>
+            </button>
+          ))}
+        </div>
+      </>}
     </>
   );
 }
