@@ -84,6 +84,7 @@ jobs:
           node scripts/smoke_refresh.mjs
 
       - name: Commit if the data changed
+        id: commit
         run: |
           git config user.name  "courtside-data-bot"
           git config user.email "github-actions[bot]@users.noreply.github.com"
@@ -91,9 +92,73 @@ jobs:
           cp src/data/app-data.json docs/app-data.json
           if git diff --quiet -- src/data/app-data.json docs/app-data.json; then
             echo "No change in app-data.json — nothing to commit."
+            echo "committed=false" >> "$GITHUB_OUTPUT"
           else
             git add src/data/app-data.json docs/app-data.json
             git commit -m "data: daily refresh $(date -u +%Y-%m-%d)"
             git push origin HEAD:${{ github.ref_name }}
             echo "Pushed refreshed snapshot."
+            echo "committed=true" >> "$GITHUB_OUTPUT"
           fi
+
+      # --- daily email summary --------------------------------------------------
+      # Replaces manually checking the pipeline each day: this run always emails
+      # raiappsdev@gmail.com a one-line status, success or failure, so a broken
+      # refresh gets noticed the same day instead of silently going stale.
+      #
+      # Requires two repo secrets (Settings → Secrets and variables → Actions →
+      # New repository secret) — neither is set yet, so the email step below is a
+      # no-op (skipped, doesn't fail the run) until they exist:
+      #   GMAIL_USERNAME      the Gmail address that SENDS the email (e.g. this
+      #                       project's own raiappsdev@gmail.com)
+      #   GMAIL_APP_PASSWORD  a 16-character Gmail "App Password" for that account
+      #                       (Google Account → Security → 2-Step Verification →
+      #                       App passwords) — NOT the normal account password;
+      #                       Gmail requires this for SMTP.
+      - name: Prepare daily summary
+        if: always()
+        id: meta
+        env:
+          JOB_STATUS: ${{ job.status }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          COMMITTED: ${{ steps.commit.outputs.committed }}
+        run: |
+          python3 - <<'PYEOF'
+          import json, os, datetime
+          try:
+              d = json.load(open("src/data/app-data.json"))
+              m = d.get("meta", {})
+              last_game, completed, total = m.get("lastGame"), m.get("completedGames"), m.get("totalGames")
+              inj = len(d.get("INJ") or {})
+          except Exception:
+              last_game = completed = total = inj = None
+          ok = os.environ.get("JOB_STATUS") == "success"
+          subject = f"{'✅' if ok else '❌'} Courtside data refresh — {datetime.date.today().isoformat()}"
+          lines = [f"Status: {'success' if ok else os.environ.get('JOB_STATUS', 'unknown')}"]
+          lines.append(f"Data current through: {last_game or 'unknown'}")
+          if completed is not None and total is not None:
+              lines.append(f"Games: {completed} completed / {total} total")
+          if inj:
+              lines.append(f"Injury reports: {inj}")
+          lines.append(f"Committed new data: {os.environ.get('COMMITTED', 'unknown')}")
+          lines.append("")
+          lines.append(os.environ["RUN_URL"])
+          body = "\n".join(lines)
+          with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+              f.write(f"subject={subject}\n")
+              f.write("body<<EOF\n" + body + "\nEOF\n")
+          PYEOF
+
+      - name: Email daily summary
+        if: always()
+        continue-on-error: true   # a missing/bad SMTP secret should never mark the data refresh itself as failed
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 465
+          username: ${{ secrets.GMAIL_USERNAME }}
+          password: ${{ secrets.GMAIL_APP_PASSWORD }}
+          subject: ${{ steps.meta.outputs.subject }}
+          to: raiappsdev@gmail.com
+          from: Courtside Data Bot <${{ secrets.GMAIL_USERNAME }}>
+          body: ${{ steps.meta.outputs.body }}
