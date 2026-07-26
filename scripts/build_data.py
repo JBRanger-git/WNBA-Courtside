@@ -411,11 +411,34 @@ def build(csv_dir: Path, out_dir: Path):
         GHIST = PREV.get("GHIST") or []
         print(f"  head-to-head    {len(GHIST)}  (preserved — no fact_games_hist.csv)")
 
+    # --- injury status (INJ) --------------------------------------------------
+    # Keyed by athlete_id, {"status", "note", "updated"}. From ESPN via wehoop's
+    # espn_wnba_injuries() (fetch_injuries.R), the same site.api.espn.com family
+    # already called daily for news/lines — not a new class of request. PRESERVED
+    # from the previous snapshot when the fetch comes back empty (transient miss
+    # or a player's status just isn't listed), trimmed to players still kept.
+    # Absence means "nothing reported", never asserted as "healthy".
+    inj_rows = _opt("dim_injuries.csv")
+    if inj_rows:
+        INJ = {}
+        for r in inj_rows:
+            try: aid = int(r["athlete_id"])
+            except (ValueError, TypeError, KeyError): continue
+            if aid not in keep: continue
+            status = (r.get("status") or "").strip()
+            if not status: continue
+            INJ[aid] = {"status": status, "note": (r.get("note") or "").strip(),
+                        "updated": (r.get("updated") or "")[:10]}
+        print(f"  injuries        {len(INJ)} player(s) on the report")
+    else:
+        INJ = {int(k): v for k, v in (PREV.get("INJ") or {}).items() if int(k) in keep}
+        print(f"  injuries        {len(INJ)}  (preserved — no dim_injuries.csv)")
+
     payload = {"meta":{"totalGames":len(G), "completedGames":completed,
                        "leagueAvgPpg":round(sum(int(r["team_score"]) for r in tbox)/len(tbox),1),
                        "lastGame":max((r[1] for r in G if r[9]), default=None), "season":cur_season},
                "T":T,"S":S,"P":P,"G":G,"N":N,"BIO":BIO,"TEAM_BIO":TEAM_BIO,"SHOTS":SHOTS,"GB":GB,"GL":GL,
-               "PHIST":PHIST,"THIST":THIST,"GHIST":GHIST}
+               "PHIST":PHIST,"THIST":THIST,"GHIST":GHIST,"INJ":INJ}
     dst = out_dir/"app-data.json"
     dst.write_text(json.dumps(payload, separators=(",",":")))
     kb = dst.stat().st_size/1024

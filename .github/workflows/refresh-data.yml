@@ -68,6 +68,12 @@ jobs:
         # score and preserves prior lines, so a miss never breaks the refresh.
         run: Rscript scripts/fetch_lines.R || echo "lines fetch step failed — continuing with preserved lines"
 
+      - name: Fetch injury status (R → CSV)
+        # Adds dim_injuries.csv for the team/player pages. Defensive and non-fatal;
+        # build_data.py preserves the prior report on a miss and clears a player's
+        # status once ESPN no longer lists them, so it never shows a stale "Out".
+        run: Rscript scripts/fetch_injuries.R || echo "injuries fetch step failed — continuing with preserved injuries"
+
       - name: Rebuild snapshot (CSV → JSON)
         run: python3 scripts/build_data.py ./data/csv ./src/data
 
