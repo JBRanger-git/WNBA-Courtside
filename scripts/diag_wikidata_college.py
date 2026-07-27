@@ -14,8 +14,8 @@ SELECT ?playerLabel ?collegeLabel ?collegeTypeLabel WHERE {
   ?league rdfs:label "Women's National Basketball Association"@en .
   ?team wdt:P118 ?league .
   ?player wdt:P54 ?team .
-  ?player rdfs:label ?playerLabel . FILTER(LANG(?playerLabel) = "en")
-  FILTER(?playerLabel IN ("A'ja Wilson", "Breanna Stewart", "Diana Taurasi", "Caitlin Clark"))
+  ?player rdfs:label ?enLabel . FILTER(LANG(?enLabel) = "en")
+  FILTER(?enLabel IN ("A'ja Wilson", "Breanna Stewart", "Diana Taurasi", "Caitlin Clark"))
   ?player wdt:P69 ?college .
   OPTIONAL { ?college wdt:P31 ?collegeType . }
   SERVICE wikibase:label { bd:serviceParam wikibase:language "en". }
