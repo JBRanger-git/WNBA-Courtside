@@ -56,11 +56,6 @@ jobs:
       - name: Fetch fresh data (R → CSV)
         run: Rscript scripts/fetch_wnba.R
 
-      - name: DIAG wikidata college types
-        run: |
-          pip install --quiet requests
-          python3 scripts/diag_wikidata_college.py
-
       - name: Fetch WNBA news (R → CSV)
         # Adds dim_news.csv (headlines + real story URLs) for the app's Wire.
         # Fully defensive and never fatal: on any failure build_data.py preserves
