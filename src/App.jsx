@@ -1724,6 +1724,7 @@ function CareerArc({ p }) {
           </div>
         ))}
       </div>
+      <TeamTenure seasons={h} />
       <SectionHead action="per game">By season</SectionHead>
       <table style={{ width: "100%", borderCollapse: "collapse" }}>
         <thead><tr>
@@ -1748,6 +1749,45 @@ function CareerArc({ p }) {
           <span style={{ color: C.accent, fontWeight: 700 }}>*</span> 2020 was the 22-game Bradenton “bubble” season — a shortened schedule, flagged so it isn’t read as a full year.
         </div>
       )}
+    </>
+  );
+}
+
+// Condensed "which teams, which years" — collapses consecutive same-team
+// seasons in a player's history (h, ascending by year — the same list
+// CareerArc's "By season" table renders in full) into ranges, e.g. LV 2022-26.
+// A season with 1-or-fewer games played is dropped before grouping rather than
+// treated as a real stint: that's exactly the shape of an All-Star Game cameo
+// (a single game, sometimes even under a synthetic non-club team — see the
+// All-Star gotcha in CLAUDE.md), not a roster tenure worth showing.
+function teamTenure(seasons) {
+  const real = seasons.filter(s => s.gp > 1 && s.tm);
+  const spans = [];
+  for (const s of real) {
+    const last = spans[spans.length - 1];
+    if (last && last.tm === s.tm && s.yr === last.to + 1) last.to = s.yr;
+    else spans.push({ tm: s.tm, from: s.yr, to: s.yr });
+  }
+  return spans;
+}
+
+// Only worth a section when a player has actually changed teams — a career
+// spent entirely on one club is already obvious from the page header, and a
+// single-entry "Teams: LV 2018-26" strip would just repeat it.
+function TeamTenure({ seasons }) {
+  const spans = teamTenure(seasons);
+  if (spans.length < 2) return null;
+  return (
+    <>
+      <SectionHead>Teams</SectionHead>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 6, padding: "7px 0 10px" }}>
+        {spans.map(t => (
+          <div key={t.tm + t.from} style={{ fontSize: 11, padding: "4px 9px", border: `1px solid ${C.border}`, background: C.card }}>
+            <b style={{ fontFamily: DISPLAY, ...agate }}>{t.tm}</b>
+            <span style={{ color: C.sec, marginLeft: 5 }}>{t.from === t.to ? t.from : `${t.from}–${t.to}`}</span>
+          </div>
+        ))}
+      </div>
     </>
   );
 }
