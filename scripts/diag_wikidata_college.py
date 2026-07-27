@@ -6,16 +6,18 @@ HEADERS = {
     "Accept": "application/sparql-results+json",
 }
 
-# For a few known players, dump EVERY "educated at" (P69) entry and its
-# "instance of" (P31) type(s) — raw, unfiltered — so we can see the real shape
-# that distinguishes a college/university from a high school.
+# Dump EVERY "educated at" (P69) entry + "instance of" (P31) type for the
+# WHOLE roster — same base pattern as the production query in wikidata_bio.py
+# (proven to return rows: 65 real matches in prod), plus the P31 type. Filter
+# for players of interest in Python afterward rather than in SPARQL — an
+# earlier attempt with a SPARQL-side FILTER(?enLabel IN (...)) returned 0 rows,
+# most likely an apostrophe-encoding mismatch against "A'ja Wilson" on
+# Wikidata's side, not a data-absence issue.
 QUERY = """
 SELECT ?playerLabel ?collegeLabel ?collegeTypeLabel WHERE {
   ?league rdfs:label "Women's National Basketball Association"@en .
   ?team wdt:P118 ?league .
   ?player wdt:P54 ?team .
-  ?player rdfs:label ?enLabel . FILTER(LANG(?enLabel) = "en")
-  FILTER(?enLabel IN ("A'ja Wilson", "Breanna Stewart", "Diana Taurasi", "Caitlin Clark"))
   ?player wdt:P69 ?college .
   OPTIONAL { ?college wdt:P31 ?collegeType . }
   SERVICE wikibase:label { bd:serviceParam wikibase:language "en". }
@@ -26,8 +28,13 @@ r = requests.get(ENDPOINT, params={"format": "json", "query": QUERY}, headers=HE
 r.raise_for_status()
 rows = r.json()["results"]["bindings"]
 print(f"rows: {len(rows)}")
+WATCH = ["wilson", "stewart", "taurasi", "clark"]
+shown = 0
 for b in rows:
-    player = b.get("playerLabel", {}).get("value")
+    player = b.get("playerLabel", {}).get("value") or ""
     college = b.get("collegeLabel", {}).get("value")
     ctype = b.get("collegeTypeLabel", {}).get("value")
-    print(f"  {player!r} | educated at: {college!r} | type: {ctype!r}")
+    if any(w in player.lower() for w in WATCH):
+        print(f"  {player!r} | educated at: {college!r} | type: {ctype!r}")
+        shown += 1
+print(f"shown: {shown}")
