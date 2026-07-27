@@ -74,6 +74,23 @@ jobs:
         # status once ESPN no longer lists them, so it never shows a stale "Out".
         run: Rscript scripts/fetch_injuries.R || echo "injuries fetch step failed — continuing with preserved injuries"
 
+      - name: Fetch team identity stats (R → CSV)
+        # Adds fact_team_advanced.csv (points in paint, fast break points, points
+        # off turnovers, largest lead, lead changes) for the team page's identity
+        # panel. Defensive and non-fatal; build_data.py averages whatever games it
+        # got and preserves the prior averages on a miss.
+        run: Rscript scripts/fetch_team_advanced.R || echo "team-advanced fetch step failed — continuing with preserved team stats"
+
+      - name: Fetch player bio (Wikidata → CSV)
+        # Adds dim_player_bio.csv (college/country/honours, CC0). Reads the roster
+        # from the *previous* app-data.json (not yet overwritten this run) so it
+        # can run unconditionally — dim_players.csv is never fetched daily. Fully
+        # defensive: on any failure build_data.py just merges nothing this run and
+        # keeps whatever it already had.
+        run: |
+          pip install --quiet requests
+          python3 scripts/wikidata_bio.py src/data/app-data.json data/csv/dim_player_bio.csv || echo "wikidata bio fetch step failed — continuing without new bio data"
+
       - name: Rebuild snapshot (CSV → JSON)
         run: python3 scripts/build_data.py ./data/csv ./src/data
 
@@ -130,8 +147,9 @@ jobs:
               m = d.get("meta", {})
               last_game, completed, total = m.get("lastGame"), m.get("completedGames"), m.get("totalGames")
               inj = len(d.get("INJ") or {})
+              college = sum(1 for b in (d.get("BIO") or {}).values() if b.get("college"))
           except Exception:
-              last_game = completed = total = inj = None
+              last_game = completed = total = inj = college = None
           ok = os.environ.get("JOB_STATUS") == "success"
           subject = f"{'✅' if ok else '❌'} Courtside data refresh — {datetime.date.today().isoformat()}"
           lines = [f"Status: {'success' if ok else os.environ.get('JOB_STATUS', 'unknown')}"]
@@ -140,6 +158,8 @@ jobs:
               lines.append(f"Games: {completed} completed / {total} total")
           if inj:
               lines.append(f"Injury reports: {inj}")
+          if college:
+              lines.append(f"Players with college: {college}")
           lines.append(f"Committed new data: {os.environ.get('COMMITTED', 'unknown')}")
           lines.append("")
           lines.append(os.environ["RUN_URL"])
