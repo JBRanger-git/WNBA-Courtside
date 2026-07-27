@@ -1352,6 +1352,7 @@ function PlayerDetail({ player: p, onBack, openTeam }) {
             <span style={{ flex: 1, fontFamily: DISPLAY, fontSize: 14.5, letterSpacing: .5, textTransform: "uppercase" }}>{p.team.name}</span>
             <ChevronLeft size={15} color={C.mute} style={{ transform: "rotate(180deg)" }} />
           </button>
+          <PlayerInfo p={p} />
         </>}
         {sub === "Percentiles" && <>
           <SectionHead action={`vs ${p.pos} · min 8 GP`}>Peer rank</SectionHead>
@@ -1448,9 +1449,10 @@ function Cite({ text }) {
 }
 
 
-// Bio facts from dim_players. Every field is optional — Wikidata-sourced
-// college/honours will be patchy for rookies and international players, so the
-// strip has to degrade rather than leave holes.
+// Bio facts from dim_players — the compact vitals row up top. Deliberately
+// just No./Position/Height/Age/Experience: College/Country/Honours (Wikidata)
+// are secondary background, not vitals, and live in PlayerInfo below the Team
+// section instead so the top of the page stays short. Every field is optional.
 function BioStrip({ p }) {
   const b = p.bio || {};
   const facts = [
@@ -1459,11 +1461,6 @@ function BioStrip({ p }) {
     b.h && ["Height", b.h],
     b.age && ["Age", b.age],
     b.exp != null && ["Experience", b.exp === 0 ? "Rookie" : `${b.exp} yr${b.exp > 1 ? "s" : ""}`],
-    b.college && ["College", b.college],   // Wikidata (CC0) — see scripts/wikidata_bio.py
-    // Country only earns a slot for international players — every US player
-    // would otherwise repeat the same noisy fact across the whole roster.
-    b.country && !/^united states/i.test(b.country) && ["Country", b.country],
-    b.honours && ["Honours", b.honours],
   ].filter(Boolean);
   if (!facts.length) return null;
   return (
@@ -1482,9 +1479,9 @@ function BioStrip({ p }) {
 // A short, factual player line — composed entirely from data already in the
 // model (role, season, headline averages), never fabricated prose. It fills the
 // profile's dead space above the stat grid and reads like an agate scouting
-// note. Deliberately pronoun-free and terse. College (Wikidata/CC0) slots in
-// when present; every clause degrades to nothing if its fact is missing, so a
-// bare "Guard for the Dallas Wings." is still a valid line.
+// note. Deliberately pronoun-free and terse. College is deliberately NOT
+// mentioned here — it lives in PlayerInfo below the Team section, keeping the
+// top of the page down to just the compact vitals.
 const POS_FULL = { G: "Guard", F: "Forward", C: "Center" };
 const ordinal = (n) => {
   const s = ["th", "st", "nd", "rd"], v = n % 100;
@@ -1493,9 +1490,7 @@ const ordinal = (n) => {
 function PlayerBlurb({ p }) {
   const b = p.bio || {};
   const role = b.posFull || POS_FULL[p.pos] || p.pos;
-  let s1 = `${role} for the ${p.team.name}`;
-  if (b.college) s1 += `, out of ${b.college}`;
-  s1 += ".";
+  const s1 = `${role} for the ${p.team.name}.`;
 
   const season = b.exp === 0 ? "Rookie season" : b.exp != null ? `${ordinal(b.exp + 1)} season` : null;
   const line = `averaging ${p.ppg} points, ${p.rpg} rebounds and ${p.apg} assists across ${p.gp} game${p.gp === 1 ? "" : "s"}.`;
@@ -1505,6 +1500,35 @@ function PlayerBlurb({ p }) {
     <p style={{ fontSize: 12, lineHeight: 1.55, color: C.sec, padding: "10px 0", margin: 0, borderBottom: `1px solid ${C.border}` }}>
       <span style={{ color: C.text }}>{s1}</span> <span style={agate}>{s2}</span>
     </p>
+  );
+}
+
+// College/country/honours (Wikidata, CC0) — background, not vitals, so it sits
+// below the Team section rather than crowding the top of the page alongside
+// No./Position/Height/Age/Experience. One fact per line (not a horizontal
+// strip like BioStrip) since honours can run long, e.g. "WNBA champion; WNBA
+// All-Star; WNBA Rookie of the Year". Coverage is patchy by design — a blank
+// section here is correct for a rookie or international player, not a bug.
+function PlayerInfo({ p }) {
+  const b = p.bio || {};
+  const facts = [
+    b.college && ["College", b.college],
+    // Country only earns a slot for international players — every US player
+    // would otherwise repeat the same noisy fact across the whole roster.
+    b.country && !/^united states/i.test(b.country) && ["Country", b.country],
+    b.honours && ["Honours", b.honours],
+  ].filter(Boolean);
+  if (!facts.length) return null;
+  return (
+    <>
+      <SectionHead action="Wikidata, CC0">Background</SectionHead>
+      {facts.map(([k, v]) => (
+        <div key={k} style={{ padding: "8px 0", borderBottom: `1px solid ${C.border}` }}>
+          <div style={{ fontSize: 8.5, letterSpacing: .8, textTransform: "uppercase", color: C.sec, fontWeight: 700 }}>{k}</div>
+          <div style={{ fontSize: 12.5, color: C.text, marginTop: 2, lineHeight: 1.4 }}>{v}</div>
+        </div>
+      ))}
+    </>
   );
 }
 
