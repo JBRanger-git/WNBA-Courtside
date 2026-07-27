@@ -12,8 +12,9 @@ import { Home, Shield, Users, CalendarDays, ChevronLeft, ChevronRight, Search, M
 
 // Bio: height / age / experience / jersey / position, straight from dim_players.
 // Already in the model, previously unused. Coverage is 93-100% except weight
-// (53%), which is dropped rather than rendered as a gap. College, draft and
-// honours are NOT in wehoop — those need Wikidata (CC0) and land as optional.
+// (53%), which is dropped rather than rendered as a gap. College, country and
+// honours are NOT in wehoop — those come from Wikidata (CC0, scripts/wikidata_bio.py)
+// and land as optional, patchy fields.
 
 // Team bio derived from dim_games home fixtures: primary arena, any alternate
 // venues, and mean attendance over games that have reported it. No new source.
@@ -30,11 +31,12 @@ import { Home, Shield, Users, CalendarDays, ChevronLeft, ChevronRight, Search, M
 // fresher snapshot arriving mid-session swaps the whole app's data with one
 // re-render. Components read these module bindings at render time, so
 // reassigning them here is all that's needed — no prop/context threading.
-let RAW, BIO, TEAM_BIO, INJ, SHOTS, GAMEBOX, GAMELINE, TEAMS, TEAM, STANDINGS, PLAYERS, GAMES, GAME, NEWS;
+let RAW, BIO, TEAM_BIO, TEAM_ADV, INJ, SHOTS, GAMEBOX, GAMELINE, TEAMS, TEAM, STANDINGS, PLAYERS, GAMES, GAME, NEWS;
 function computeTables() {
   RAW = getData();
   BIO = RAW.BIO || {};
   TEAM_BIO = RAW.TEAM_BIO || {};
+  TEAM_ADV = RAW.TADV || {};   // identity stats (paint/fast-break/etc.) by team id, absent until fetched
   INJ = RAW.INJ || {};   // injury status by player id, absent means nothing reported
   SHOTS = RAW.SHOTS || { LG: null, P: {} };   // null when fact_pbp is absent
   GAMEBOX = RAW.GB || {};                      // per-game box detail, keyed by game id (completed games)
@@ -43,7 +45,7 @@ function computeTables() {
   // runs (scripts/backfill_history.R) — every history view degrades to "not yet".
   const PHIST = RAW.PHIST || {}, THIST = RAW.THIST || {};
   const hist = (m, id) => m[id] || m[String(id)] || [];
-  TEAMS = RAW.T.map(([id, abbr, name, shortName, color, conf]) => ({ id, abbr, name, shortName, color, conf, bio: TEAM_BIO[id] || {}, hist: hist(THIST, id) }));
+  TEAMS = RAW.T.map(([id, abbr, name, shortName, color, conf]) => ({ id, abbr, name, shortName, color, conf, bio: TEAM_BIO[id] || {}, adv: TEAM_ADV[id] || {}, hist: hist(THIST, id) }));
   TEAM = Object.fromEntries(TEAMS.map(t => [t.id, t]));
   STANDINGS = RAW.S.map(([id, w, l, pct, pf, pa, diff, streak, l10, home, road]) =>
     ({ id, w, l, pct, pf, pa, diff, streak, l10, home, road, ...TEAM[id] }));
@@ -1245,6 +1247,7 @@ function TeamDetail({ team, onBack, openPlayer, openGame }) {
           <SectionHead action="league avg 86.3">Scoring</SectionHead>
           <Bar label="Points for" v={s.pf} max={95} color={C.blue} />
           <Bar label="Points against" v={s.pa} max={95} color={C.sec} />
+          <TeamIdentity team={team} />
           <SectionHead>Top scorers</SectionHead>
           {roster.slice(0, 5).map((p, i) => (
             <button key={p.id} onClick={() => openPlayer(p.id)} style={{ width: "100%", display: "flex", alignItems: "center", gap: 8, padding: "7px 0", border: "none", borderBottom: `1px solid ${C.border}`, background: i % 2 ? C.stripe : "none", cursor: "pointer", textAlign: "left" }}>
@@ -1457,6 +1460,10 @@ function BioStrip({ p }) {
     b.age && ["Age", b.age],
     b.exp != null && ["Experience", b.exp === 0 ? "Rookie" : `${b.exp} yr${b.exp > 1 ? "s" : ""}`],
     b.college && ["College", b.college],   // Wikidata (CC0) — see scripts/wikidata_bio.py
+    // Country only earns a slot for international players — every US player
+    // would otherwise repeat the same noisy fact across the whole roster.
+    b.country && !/^united states/i.test(b.country) && ["Country", b.country],
+    b.honours && ["Honours", b.honours],
   ].filter(Boolean);
   if (!facts.length) return null;
   return (
@@ -1532,6 +1539,30 @@ function TeamBio({ team }) {
             <span style={{ fontSize: 9.5, color: C.mute, marginLeft: 5 }}>{b.attN} games</span></span>
         </div>
       )}
+    </>
+  );
+}
+
+// How a team plays, not just how well: points in the paint, fast-break points,
+// points conceded off turnovers, largest lead, lead changes, and an estimated
+// possessions/game (FGA - OREB + TOV + 0.44*FTA — see scripts/fetch_team_advanced.R).
+// Every field is optional and degrades individually; the whole section is absent
+// until the ESPN-live fetch has run at least once.
+function TeamIdentity({ team }) {
+  const a = team.adv || {};
+  const facts = [
+    a.poss != null && ["Possessions/gm", a.poss],
+    a.pip != null && ["Points in paint", a.pip],
+    a.fbp != null && ["Fast break pts", a.fbp],
+    a.tov_pts != null && ["Pts off TOs conceded", a.tov_pts],
+    a.largest_lead != null && ["Largest lead", a.largest_lead],
+    a.lead_changes != null && ["Lead changes", a.lead_changes],
+  ].filter(Boolean);
+  if (!facts.length) return null;
+  return (
+    <>
+      <SectionHead action={`${a.gp} gm sample`}>Identity</SectionHead>
+      <StatGrid items={facts} />
     </>
   );
 }

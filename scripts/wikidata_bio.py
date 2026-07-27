@@ -7,23 +7,31 @@ commercial restriction, no ToS to breach. It's the only major source for this
 material that's unambiguously safe to redistribute in a shipped app — which is
 exactly why it's worth the patchy coverage.
 
-Pulls: college (P69), draft pick (P647), date of birth (P569), country (P27),
-and honours received (P166). Deliberately does NOT pull "nominated for" (P1411)
-— it's sparsely populated for basketball and the WNBA has no real nomination
-structure, so it would be a field that's blank 95% of the time.
+Pulls: college (P69), date of birth (P569), country (P27), and honours
+received (P166). Deliberately does NOT pull "nominated for" (P1411) — it's
+sparsely populated for basketball and the WNBA has no real nomination
+structure, so it would be a field that's blank 95% of the time. Draft pick
+(P647) isn't pulled either — WNBA draft picks are thinly documented on
+Wikidata compared to college, so it would mostly render blank for no gain.
 
 Matching is by name, which is the weak link — see reconcile() below. Anything
 unmatched is left blank rather than guessed. A blank bio field renders as
 nothing; a wrong one poisons the whole app's credibility.
 
+The roster comes from src/data/app-data.json (the P table), not dim_players.csv:
+fetch_wnba.R doesn't write dim_players.csv on the daily run (see CLAUDE.md — core
+bio is slow-changing and preserved from a one-time load), so a script that
+required it could never actually run in the daily refresh. Reading the roster
+already baked into the previous snapshot means this can run unconditionally,
+every day, like the other enrichment fetches.
+
 Usage:
     pip install requests
-    python3 scripts/wikidata_bio.py data/csv/dim_players.csv data/csv/dim_player_bio.csv
+    python3 scripts/wikidata_bio.py src/data/app-data.json data/csv/dim_player_bio.csv
 """
 import csv
 import json
 import sys
-import time
 import unicodedata
 from pathlib import Path
 
@@ -73,8 +81,15 @@ def fetch():
     return r.json()["results"]["bindings"]
 
 
-def reconcile(players_csv: Path, out_csv: Path):
-    roster = list(csv.DictReader(open(players_csv, encoding="utf-8")))
+def load_roster(app_data_json: Path):
+    """Roster as [{"athlete_id", "athlete_display_name"}] from the P table of a
+    built snapshot (element 0 = athlete_id, element 1 = display name)."""
+    P = json.loads(app_data_json.read_text(encoding="utf-8"))["P"]
+    return [{"athlete_id": str(p[0]), "athlete_display_name": p[1]} for p in P]
+
+
+def reconcile(app_data_json: Path, out_csv: Path):
+    roster = load_roster(app_data_json)
     print(f"Roster: {len(roster)} players")
 
     rows = fetch()
@@ -135,6 +150,6 @@ def reconcile(players_csv: Path, out_csv: Path):
 
 
 if __name__ == "__main__":
-    src = Path(sys.argv[1]) if len(sys.argv) > 1 else Path("data/csv/dim_players.csv")
+    src = Path(sys.argv[1]) if len(sys.argv) > 1 else Path("src/data/app-data.json")
     dst = Path(sys.argv[2]) if len(sys.argv) > 2 else Path("data/csv/dim_player_bio.csv")
     reconcile(src, dst)

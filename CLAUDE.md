@@ -54,7 +54,7 @@ for it prematurely.
 # 1. refresh CSVs from R (see scripts/backfill_history.R)
 # 2. rebuild the JSON:
 npm run data
-# 3. optional — player bio from Wikidata (CC0):
+# 3. optional locally — player bio from Wikidata (CC0); runs daily in CI:
 npm run bio
 ```
 
@@ -223,17 +223,34 @@ plausible-looking wrong fingerprint.
   Turnaround, Floating, Putback) as clean strings — no regex archaeology needed.
   **Precompute these server-side/in-R.** 72k pbp rows is 54 MB as JSON; the app
   needs ~15 numbers per player, not the plays.
-- **Historical seasons (2020–2026).** `scripts/backfill_history.R` is written but
-  unrun. Blocked on nothing. Unlocks career arcs, which is the single biggest
-  upgrade available. Note 2020 was the 22-game Bradenton bubble — flag it, don't
-  silently mix it into all-time leaderboards.
-- **Team identity panel.** `fact_team_box` has `pace`, `possessions`,
-  `points_in_paint`, `fast_break_points`, `turnover_points`, `largest_lead`,
-  `lead_changes` — all 350/350 filled, all unused. Pace especially: it says *how*
-  a team plays, not just how well.
-- **College / honours.** `scripts/wikidata_bio.py` is written but unrun (the
-  sandbox it was authored in couldn't reach Wikidata). The `b.college` slot in
-  `BioStrip` renders as soon as it's populated.
+**Shipped, no longer stubs:**
+
+- **Historical seasons (2020–2025).** `scripts/backfill_history.R` has been run;
+  `PHIST`/`THIST`/`GHIST` cover six seasons. Career arcs, past standings and
+  head-to-head history are live. 2020 (the 22-game Bradenton bubble) is flagged
+  via `bubble: 1` on affected rows rather than silently mixed into all-time
+  leaderboards.
+- **College / country / honours.** `scripts/wikidata_bio.py` runs daily in
+  `refresh-data.yml` (CC0, Wikidata). Its roster comes from `src/data/app-data.json`'s
+  `P` table, not `dim_players.csv` — that CSV is never fetched on the daily run
+  (core bio is slow-changing and preserved from a one-time load), so a script
+  that required it could never actually run. `BioStrip` renders College, and
+  Country only for non-US players (showing "United States" on every domestic
+  player would be pure noise). Coverage is patchy by design — rookies and
+  players who went pro in Europe as teenagers legitimately have no NCAA/Wikidata
+  record, and a blank field is correct there, not a bug.
+- **Team identity panel.** `load_wnba_team_box()`'s bulk `pace`/`possessions`/etc.
+  columns have the same current-season lag `fetch_wnba.R` already routes around
+  for scores (see "Data gotchas"), so this is NOT sourced from there.
+  `scripts/fetch_team_advanced.R` hits ESPN's live per-game summary endpoint
+  instead (same pattern as `fetch_lines.R`), verified field names via a CI
+  diagnostic dump: `pointsInPaint`, `fastBreakPoints`, `turnoverPoints`,
+  `largestLead`, `leadChanges`. `pace` itself is deliberately NOT computed — its
+  normalization convention has no verified precedent in this codebase, and a
+  subtly wrong derived stat is worse than an absent one. `possessions` IS
+  computed, from the standard estimate (`FGA - OREB + TOV + 0.44*FTA`) using
+  real per-game inputs ESPN does report — a well-established formula, not a
+  guess, unlike a guessed pace normalization would be.
 
 ## Future: going live
 

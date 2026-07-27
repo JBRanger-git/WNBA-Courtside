@@ -188,14 +188,6 @@ def build(csv_dir: Path, out_dir: Path):
         BIO = {int(k): v for k, v in (PREV.get("BIO") or {}).items() if int(k) in keep}
         print(f"  player bio     {len(BIO)}  (preserved — no dim_players.csv)")
     else:
-        bio_extra = {}
-        bc = csv_dir/"dim_player_bio.csv"
-        if bc.exists():
-            for r in read(bc):
-                if r.get("college"): bio_extra[int(r["athlete_id"])] = r["college"]
-            print(f"  wikidata bio   {len(bio_extra)} with a college")
-        else:
-            print("  wikidata bio   (skipped — run scripts/wikidata_bio.py to add college)")
         BIO = {}
         for r in players_raw:
             aid = int(r["athlete_id"])
@@ -206,9 +198,28 @@ def build(csv_dir: Path, out_dir: Path):
             if r["experience_years"].strip():      e["exp"] = int(r["experience_years"])
             if r["athlete_jersey"].strip():        e["no"] = r["athlete_jersey"].strip()
             if r["athlete_position_name"].strip(): e["posFull"] = r["athlete_position_name"].strip()
-            if aid in bio_extra:                   e["college"] = bio_extra[aid]
             if e: BIO[aid] = e
         print(f"  player bio     {len(BIO)}")
+
+    # Wikidata extras (college/country/honours) — merged onto BIO regardless of
+    # whether the core bio above was freshly built or preserved from PREV, since
+    # dim_players.csv (core bio) is basically never present on the daily run but
+    # dim_player_bio.csv (scripts/wikidata_bio.py) is meant to run every day.
+    bc = csv_dir/"dim_player_bio.csv"
+    if bc.exists():
+        n_college = 0
+        for r in read(bc):
+            try: aid = int(r["athlete_id"])
+            except (ValueError, KeyError): continue
+            if aid not in keep: continue
+            extra = {}
+            if r.get("college"): extra["college"] = r["college"]; n_college += 1
+            if r.get("country"): extra["country"] = r["country"]
+            if r.get("honours"): extra["honours"] = r["honours"]
+            if extra: BIO.setdefault(aid, {}).update(extra)
+        print(f"  wikidata bio   {n_college} with a college")
+    else:
+        print("  wikidata bio   (skipped — run scripts/wikidata_bio.py to add college)")
 
     # Home venues + attendance from fixtures. Several clubs use more than one home
     # arena (Toronto play across four in three cities) so this is a list, not a scalar.
@@ -226,6 +237,34 @@ def build(csv_dir: Path, out_dir: Path):
                          "att": round(sum(a)/len(a)) if a else None, "attN": len(a),
                          "home": sum(n for _,n in o)}
     print(f"  team bio       {len(TEAM_BIO)}")
+
+    # --- team identity (TADV): points in paint, fast break points, points
+    # conceded off turnovers, largest lead, lead changes, and an estimated
+    # possessions/game — averaged per team over completed games seen so far.
+    # Fully optional: preserved from PREV when fact_team_advanced.csv is absent
+    # (see scripts/fetch_team_advanced.R — the ESPN-live fetch that avoids the
+    # same bulk-feed lag fetch_wnba.R already routes around for scores).
+    ta_path = csv_dir/"fact_team_advanced.csv"
+    if ta_path.exists():
+        acc = defaultdict(lambda: defaultdict(list))
+        for r in read(ta_path):
+            try: tid = int(r["team_id"])
+            except (ValueError, KeyError): continue
+            if tid not in team_ids: continue
+            for k in ("pip", "fbp", "tov_pts", "largest_lead", "lead_changes", "poss"):
+                v = num(r.get(k), None)
+                if v is not None: acc[tid][k].append(v)
+        TADV = {}
+        for tid, cols in acc.items():
+            gp = max((len(v) for v in cols.values()), default=0)
+            if gp == 0: continue
+            row = {k: round(sum(v) / len(v), 1) for k, v in cols.items() if v}
+            row["gp"] = gp
+            TADV[tid] = row
+        print(f"  team identity  {len(TADV)} teams")
+    else:
+        TADV = {int(k): v for k, v in (PREV.get("TADV") or {}).items() if int(k) in team_ids}
+        print(f"  team identity  {len(TADV)}  (preserved — no fact_team_advanced.csv)")
 
     # 72k pbp rows in, ~15 numbers per player out. NEVER ship the plays to the
     # client — fact_pbp is ~54 MB as JSON and the app needs none of it.
@@ -451,7 +490,7 @@ def build(csv_dir: Path, out_dir: Path):
                        "leagueAvgPpg":round(sum(int(r["team_score"]) for r in tbox)/len(tbox),1),
                        "lastGame":max((r[1] for r in G if r[9]), default=None), "season":cur_season},
                "T":T,"S":S,"P":P,"G":G,"N":N,"BIO":BIO,"TEAM_BIO":TEAM_BIO,"SHOTS":SHOTS,"GB":GB,"GL":GL,
-               "PHIST":PHIST,"THIST":THIST,"GHIST":GHIST,"INJ":INJ}
+               "PHIST":PHIST,"THIST":THIST,"GHIST":GHIST,"INJ":INJ,"TADV":TADV}
     dst = out_dir/"app-data.json"
     dst.write_text(json.dumps(payload, separators=(",",":")))
     kb = dst.stat().st_size/1024
