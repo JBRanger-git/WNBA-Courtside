@@ -56,6 +56,9 @@ jobs:
       - name: Fetch fresh data (R → CSV)
         run: Rscript scripts/fetch_wnba.R
 
+      - name: DIAG team advanced stats
+        run: Rscript scripts/diag_team_advanced.R
+
       - name: Fetch WNBA news (R → CSV)
         # Adds dim_news.csv (headlines + real story URLs) for the app's Wire.
         # Fully defensive and never fatal: on any failure build_data.py preserves
