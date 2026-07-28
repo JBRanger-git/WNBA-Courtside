@@ -7,7 +7,7 @@
 #   bash scripts/release-aab.sh
 #
 # What it does, in order:
-#   1. Rebuild the data bundle + web app, run the invariant checks (npm run verify)
+#   1. Build the web app from the committed data + smoke-check it
 #   2. Create the (gitignored) android/ project if it's missing, else sync it
 #   3. Stamp API 36 + the version — versionName from package.json, versionCode
 #      auto-incremented from versionCode.txt (a git-tracked counter that can't be
@@ -29,8 +29,17 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."   # repo root, regardless of where this is invoked from
 
-echo "== 1/4  data -> build -> smoke =="
-npm run verify
+echo "== 1/4  build web app (from committed data) + smoke-check =="
+# NOT `npm run verify` — that runs `npm run data`, which rebuilds
+# src/data/app-data.json from data/csv/*.csv. Those CSVs are gitignored and only
+# exist in CI (the daily refresh pipeline), NEVER on a release machine — so verify
+# crashes here with "No such file or directory: data/csv/dim_teams.csv". The built
+# app-data.json IS committed to git and is the source of truth for a release; a
+# release just builds the web app from it (and `npm run smoke` validates it —
+# smoke reads only dist/ + the committed JSON, no CSVs).
+[ -d node_modules ] || npm install
+npm run build
+npm run smoke
 
 echo
 echo "== 2/4  android/ project =="
