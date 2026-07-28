@@ -72,8 +72,14 @@ WHERE {
     ?player wdt:P69 ?college .
     ?college wdt:P31 ?collegeType .
     ?collegeType rdfs:label ?collegeTypeLabelEn . FILTER(LANG(?collegeTypeLabelEn) = "en")
-    FILTER(CONTAINS(LCASE(?collegeTypeLabelEn), "university") ||
-           CONTAINS(LCASE(?collegeTypeLabelEn), "college"))
+    # NOT CONTAINS "school" matters: some elite prep high schools are typed
+    # "university-preparatory school" / "college-preparatory school" on
+    # Wikidata, which otherwise pass the university/college substring check
+    # (confirmed via a CI diagnostic — Jordin Canada's "Windward School" leaked
+    # through as her college this way before this line was added).
+    FILTER((CONTAINS(LCASE(?collegeTypeLabelEn), "university") ||
+            CONTAINS(LCASE(?collegeTypeLabelEn), "college")) &&
+           !CONTAINS(LCASE(?collegeTypeLabelEn), "school"))
   }
   OPTIONAL { ?player wdt:P569 ?dob . }
   OPTIONAL { ?player wdt:P27  ?country . }

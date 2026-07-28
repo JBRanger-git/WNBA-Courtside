@@ -182,8 +182,3 @@ jobs:
           to: raiappsdev@gmail.com
           from: Courtside Data Bot <${{ secrets.GMAIL_USERNAME }}>
           body: ${{ steps.meta.outputs.body }}
-
-      - name: DIAG wikidata college types 3
-        run: |
-          pip install --quiet requests
-          python3 scripts/diag_wikidata_college3.py
