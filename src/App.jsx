@@ -90,13 +90,13 @@ const LIGHT = {
   page: "#F4F2EC", card: "#ECEAE2", visual: "#FFFFFF", stripe: "#F7F6F1",
   border: "#DEDBD2", rule: "#15151C", text: "#15151C", sec: "#5B6472",
   mute: "#8A8F98", accent: "#FE5000", good: "#1E8F5E", bad: "#C23934", blue: "#3B6FC4",
-  onRule: "#FFFFFF",
+  onRule: "#FFFFFF", ring: "rgba(21,21,28,.22)",
 };
 const DARK = {
   page: "#15151C", card: "#1F1F29", visual: "#1F1F29", stripe: "#2A2A36",
   border: "#33333F", rule: "#F4F2EC", text: "#F4F2EC", sec: "#8B93A5",
   mute: "#6E7683", accent: "#FE5000", good: "#2FA872", bad: "#D9534F", blue: "#4C8DE8",
-  onRule: "#15151C",
+  onRule: "#15151C", ring: "rgba(244,242,236,.26)",
 };
 const DISPLAY = "'Oswald', sans-serif";
 const BODY = "'Roboto', system-ui, sans-serif";
@@ -136,12 +136,68 @@ const ASSETS = {
 
 // Several club colours are near-white (POR #cee5eb, LV #a7a8aa). Picking text
 // colour by luminance rather than assuming white keeps every crest legible.
-function readableOn(hex) {
+function relLuminance(hex) {
   const h = hex.replace("#", "");
   const [r, g, b] = [0, 2, 4].map(i => parseInt(h.slice(i, i + 2), 16) / 255);
   const lin = (c) => (c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4));
-  const L = 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
-  return L > 0.45 ? C.text : "#FFFFFF";
+  return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
+}
+function readableOn(hex) {
+  return relLuminance(hex) > 0.45 ? C.text : "#FFFFFF";
+}
+
+// Club colour used as a flat fill (a spine, a bar, a strip) is a different problem
+// from club colour under text: near-white clubs (POR #cee5eb, LV #a7a8aa) vanish
+// against the page in light mode, and dark clubs (IND #002d62) vanish against the
+// page in dark mode — readableOn() doesn't help here, since there's no text sitting
+// on top to contrast against, just the fill against C.page itself. Measured contrast
+// ratios: LV/POR fall to ~1.1-2.4:1 in light mode, IND falls to ~1.0-1.3:1 in dark
+// mode, both well under WCAG's 3:1 floor for graphical objects. Nudge lightness at
+// render time until the color clears 3:1 against the *current* theme's page, in
+// whichever direction that theme needs — this covers every club color, not just the
+// ones that happened to get noticed, and it self-corrects if the user flips themes
+// since it always reads the live C.page/mode rather than a hardcoded light/dark guess.
+function contrastRatio(hexA, hexB) {
+  const La = relLuminance(hexA), Lb = relLuminance(hexB);
+  const hi = Math.max(La, Lb), lo = Math.min(La, Lb);
+  return (hi + 0.05) / (lo + 0.05);
+}
+function hexToHsl(hex) {
+  const h = hex.replace("#", "");
+  const [r, g, b] = [0, 2, 4].map(i => parseInt(h.slice(i, i + 2), 16) / 255);
+  const max = Math.max(r, g, b), min = Math.min(r, g, b), l = (max + min) / 2, d = max - min;
+  let s = 0, hue = 0;
+  if (d !== 0) {
+    s = d / (1 - Math.abs(2 * l - 1));
+    if (max === r) hue = ((g - b) / d) % 6;
+    else if (max === g) hue = (b - r) / d + 2;
+    else hue = (r - g) / d + 4;
+    hue *= 60; if (hue < 0) hue += 360;
+  }
+  return [hue, s * 100, l * 100];
+}
+function hslToHex(h, s, l) {
+  s /= 100; l /= 100;
+  const c = (1 - Math.abs(2 * l - 1)) * s, x = c * (1 - Math.abs((h / 60) % 2 - 1)), m = l - c / 2;
+  let [r, g, b] = h < 60 ? [c, x, 0] : h < 120 ? [x, c, 0] : h < 180 ? [0, c, x] : h < 240 ? [0, x, c] : h < 300 ? [x, 0, c] : [c, 0, x];
+  const ch = (v) => Math.round((v + m) * 255).toString(16).padStart(2, "0");
+  return `#${ch(r)}${ch(g)}${ch(b)}`;
+}
+const SAFE_COLOR_CACHE = {};
+function safeTeamColor(hex) {
+  const dark = C === DARK;
+  const cacheKey = `${hex}:${dark ? "d" : "l"}`;
+  if (SAFE_COLOR_CACHE[cacheKey]) return SAFE_COLOR_CACHE[cacheKey];
+  let cur = hex;
+  if (contrastRatio(cur, C.page) < 3.0) {
+    const hsl = hexToHsl(hex);
+    for (let i = 0; i < 24 && contrastRatio(cur, C.page) < 3.0; i++) {
+      hsl[2] = dark ? Math.min(97, hsl[2] + 4) : Math.max(3, hsl[2] - 4);
+      cur = hslToHex(hsl[0], hsl[1], hsl[2]);
+    }
+  }
+  SAFE_COLOR_CACHE[cacheKey] = cur;
+  return cur;
 }
 
 // Letterpress monogram — the club's own colour and letters, set like an agate
@@ -154,7 +210,7 @@ function Crest({ team, size = 30 }) {
     <div aria-hidden style={{
       width: size, height: size, background: team.color, flexShrink: 0,
       display: "flex", alignItems: "center", justifyContent: "center",
-      borderRadius: 2, border: `1px solid rgba(21,21,28,.14)`,
+      borderRadius: 2, border: `1px solid ${C.ring}`,
     }}>
       <span style={{
         fontFamily: DISPLAY, fontWeight: 700, color: fg,
@@ -167,13 +223,13 @@ function Crest({ team, size = 30 }) {
 function Face({ player, size = 44 }) {
   const url = ASSETS.faceUrl(player);
   const t = player.team;
-  if (url) return <img src={url} alt="" width={size} height={size} style={{ display: "block", borderRadius: 99, objectFit: "cover", flexShrink: 0, border: `2px solid ${t.color}` }} />;
+  if (url) return <img src={url} alt="" width={size} height={size} style={{ display: "block", borderRadius: 99, objectFit: "cover", flexShrink: 0, border: `2px solid ${safeTeamColor(t.color)}` }} />;
   const initials = player.name.split(" ").map(w => w[0]).slice(0, 2).join("");
   const fg = readableOn(t.color);
   return (
     <div aria-hidden style={{
       width: size, height: size, borderRadius: 99, background: t.color, flexShrink: 0,
-      display: "flex", alignItems: "center", justifyContent: "center", border: `1px solid rgba(21,21,28,.14)`,
+      display: "flex", alignItems: "center", justifyContent: "center", border: `1px solid ${C.ring}`,
     }}>
       <span style={{ fontFamily: DISPLAY, fontWeight: 600, color: fg, fontSize: size * 0.36, letterSpacing: .5 }}>{initials}</span>
     </div>
@@ -513,7 +569,7 @@ function ScoreRail({ open }) {
 function RailSide({ t, score, win, done }) {
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 5, minWidth: 62 }}>
-      <span style={{ width: 6, height: 6, borderRadius: 99, background: t.color, flexShrink: 0 }} />
+      <span style={{ width: 6, height: 6, borderRadius: 99, background: safeTeamColor(t.color), flexShrink: 0 }} />
       <span style={{ fontSize: 11, fontWeight: win ? 700 : 400, color: C.text, flex: 1 }}>{t.abbr}</span>
       <span style={{ fontFamily: DISPLAY, fontSize: 12.5, fontWeight: win ? 700 : 400, color: done ? (win ? C.text : C.mute) : C.mute, ...agate }}>{done ? score : "–"}</span>
     </div>
@@ -629,7 +685,7 @@ function HomeScreen({ open, onSearch }) {
                 <td style={{ ...tdStyle, textAlign: "center", color: i < 8 ? C.accent : C.mute, fontWeight: 700, fontSize: 10 }}>{i + 1}</td>
                 <td style={{ ...tdStyle, textAlign: "left" }}>
                   <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                    <span style={{ width: 3, height: 13, background: s.color, flexShrink: 0 }} />
+                    <span style={{ width: 3, height: 13, background: safeTeamColor(s.color), flexShrink: 0 }} />
                     <b style={{ fontWeight: 500 }}>{s.abbr}</b>
                     {st?.clinched && <sup style={{ fontSize: 8, fontWeight: 700, color: C.good, marginLeft: 1 }}>z</sup>}
                     {st?.eliminated && <sup style={{ fontSize: 8, fontWeight: 700, color: C.mute, marginLeft: 1 }}>e</sup>}
@@ -713,7 +769,7 @@ function PlayoffPicture({ picture, open }) {
         {bubble.map(p => (
           <button key={p.id} onClick={() => open("team", p.id)} className="tap" style={{ width: "100%", display: "flex", alignItems: "center", gap: 8, border: "none", borderBottom: `1px solid ${C.border}`, background: "none", padding: "7px 0", cursor: "pointer", textAlign: "left" }}>
             <span style={{ fontFamily: DISPLAY, fontSize: 10, fontWeight: 700, color: C.mute, width: 14, ...agate }}>{p.seed}</span>
-            <span style={{ width: 3, height: 12, background: p.color, flexShrink: 0 }} />
+            <span style={{ width: 3, height: 12, background: safeTeamColor(p.color), flexShrink: 0 }} />
             <span style={{ flex: 1, fontSize: 12, color: C.text }}>{p.name}</span>
             <span style={{ fontSize: 10.5, color: C.sec, ...agate }}>{p.w}–{p.l}</span>
             <span style={{ fontSize: 9, color: C.mute, width: 72, textAlign: "right", whiteSpace: "nowrap" }}>{p.gb} GB · {p.left} left</span>
@@ -726,7 +782,7 @@ function PlayoffPicture({ picture, open }) {
         <div style={{ display: "flex", flexWrap: "wrap", gap: 6, padding: "8px 0 4px" }}>
           {out.map(p => (
             <button key={p.id} onClick={() => open("team", p.id)} style={{ display: "flex", alignItems: "center", gap: 5, border: `1px solid ${C.border}`, borderRadius: 3, background: "none", padding: "4px 8px", cursor: "pointer" }}>
-              <span style={{ width: 3, height: 10, background: p.color, flexShrink: 0 }} />
+              <span style={{ width: 3, height: 10, background: safeTeamColor(p.color), flexShrink: 0 }} />
               <span style={{ fontSize: 10.5, color: C.mute, fontWeight: 500 }}>{p.abbr}</span>
             </button>
           ))}
@@ -808,7 +864,7 @@ function PlayersScreen({ open }) {
               <tr key={p.id + "-" + i} className="tap" onClick={() => open("player", p.id)} style={{ background: i % 2 ? C.stripe : "transparent", borderBottom: `1px solid ${C.border}`, cursor: "pointer" }}>
                 <td style={{ ...tdStyle, textAlign: "left" }}>
                   <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                    <span style={{ width: 3, height: 14, background: p.team.color, flexShrink: 0 }} />
+                    <span style={{ width: 3, height: 14, background: safeTeamColor(p.team.color), flexShrink: 0 }} />
                     <span>
                       <span style={{ fontSize: 11.5 }}>{p.name}</span>
                       <span style={{ fontSize: 9, color: C.mute, marginLeft: 4 }}>{p.team.abbr}·{p.pos}</span>
@@ -888,7 +944,7 @@ function ScheduleScreen({ open }) {
 function SchedSide({ t, score, win, done, prefix }) {
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 7, padding: "1px 0" }}>
-      <span style={{ width: 3, height: 12, background: t.color, flexShrink: 0 }} />
+      <span style={{ width: 3, height: 12, background: safeTeamColor(t.color), flexShrink: 0 }} />
       <span style={{ fontSize: 12, fontWeight: win ? 700 : 400, color: C.text, flex: 1 }}>{prefix && <span style={{ color: C.mute, fontSize: 9.5 }}>{prefix} </span>}{t.name}</span>
       <span style={{ fontFamily: DISPLAY, fontSize: 14, fontWeight: win ? 700 : 400, color: done ? (win ? C.text : C.mute) : C.mute, ...agate }}>{done ? score : "–"}</span>
     </div>
@@ -899,7 +955,7 @@ function SchedSide({ t, score, win, done, prefix }) {
 function DetailHead({ color, onBack, eyebrow, title, right, badge }) {
   return (
     <div style={{ borderBottom: `2px solid ${C.rule}`, background: C.visual }}>
-      <div style={{ height: 4, background: color }} />
+      <div style={{ height: 4, background: safeTeamColor(color) }} />
       <div style={{ display: "flex", alignItems: "center", gap: 4, padding: "8px 12px 10px" }}>
         <button onClick={onBack} style={{ border: "none", background: "none", padding: 4, cursor: "pointer", display: "flex" }}><ChevronLeft size={19} color={C.text} /></button>
         {badge}
@@ -927,7 +983,7 @@ function QuarterScores({ g, line }) {
     <tr style={{ borderBottom: `1px solid ${C.border}` }}>
       <td style={{ ...tdStyle, textAlign: "left" }}>
         <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
-          <span style={{ width: 3, height: 13, background: t.color, flexShrink: 0 }} />
+          <span style={{ width: 3, height: 13, background: safeTeamColor(t.color), flexShrink: 0 }} />
           <b style={{ fontWeight: 500 }}>{t.abbr}</b>
         </span>
       </td>
@@ -1008,7 +1064,7 @@ function HeadToHead({ g, openGame }) {
                 </td>
                 <td style={{ ...tdStyle, textAlign: "right", fontWeight: !homeWon ? 700 : 400, color: !homeWon ? C.text : C.sec }}>
                   <span style={{ display: "inline-flex", alignItems: "center", gap: 5, justifyContent: "flex-end" }}>
-                    {away.abbr}<span style={{ width: 3, height: 11, background: away.color, flexShrink: 0 }} />
+                    {away.abbr}<span style={{ width: 3, height: 11, background: safeTeamColor(away.color), flexShrink: 0 }} />
                   </span>
                 </td>
                 <td style={{ ...tdStyle, textAlign: "center", whiteSpace: "nowrap", width: 60 }}>
@@ -1018,7 +1074,7 @@ function HeadToHead({ g, openGame }) {
                 </td>
                 <td style={{ ...tdStyle, textAlign: "left", fontWeight: homeWon ? 700 : 400, color: homeWon ? C.text : C.sec }}>
                   <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
-                    <span style={{ width: 3, height: 11, background: home.color, flexShrink: 0 }} />{home.abbr}
+                    <span style={{ width: 3, height: 11, background: safeTeamColor(home.color), flexShrink: 0 }} />{home.abbr}
                   </span>
                 </td>
               </tr>
@@ -1119,7 +1175,7 @@ function GameDetail({ game: g, onBack, openTeam, openPlayer, openGame }) {
               {[[g.away, gb.top.away], [g.home, gb.top.home]].map(([t, list]) => (
                 <div key={t.id} style={{ paddingTop: 4 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 0 2px" }}>
-                    <span style={{ width: 3, height: 12, background: t.color, flexShrink: 0 }} />
+                    <span style={{ width: 3, height: 12, background: safeTeamColor(t.color), flexShrink: 0 }} />
                     <span style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: .6, textTransform: "uppercase", color: C.sec }}>{t.name}</span>
                   </div>
                   {(list || []).map(([pid, name, pts, reb, ast]) => {
@@ -1149,7 +1205,7 @@ function GameDetail({ game: g, onBack, openTeam, openPlayer, openGame }) {
               <tr key={t.id} style={{ background: i % 2 ? C.stripe : "transparent", borderBottom: `1px solid ${C.border}` }}>
                 <td style={{ ...tdStyle, textAlign: "left" }}>
                   <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                    <span style={{ width: 3, height: 13, background: t.color, flexShrink: 0 }} />
+                    <span style={{ width: 3, height: 13, background: safeTeamColor(t.color), flexShrink: 0 }} />
                     <b style={{ fontWeight: 500 }}>{t.abbr}</b>
                   </span>
                 </td>
@@ -1837,7 +1893,7 @@ function TeamHistory({ team }) {
         {h.map(s => (
           <div key={s.yr} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-end", height: "100%" }}>
             <span style={{ fontFamily: DISPLAY, fontSize: 8.5, fontWeight: 600, color: C.text, ...agate }}>{s.w}–{s.l}</span>
-            <div style={{ width: "70%", background: team.color, height: `${(s.pct / maxPct) * 82}%`, minHeight: 2, marginTop: 2, borderRadius: "1px 1px 0 0" }} />
+            <div style={{ width: "70%", background: safeTeamColor(team.color), height: `${(s.pct / maxPct) * 82}%`, minHeight: 2, marginTop: 2, borderRadius: "1px 1px 0 0" }} />
             <span style={{ fontSize: 7, color: C.mute, marginTop: 3, ...agate }}>{String(s.yr).slice(2)}{s.bubble ? "*" : ""}</span>
           </div>
         ))}
