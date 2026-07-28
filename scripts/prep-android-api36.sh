@@ -46,7 +46,15 @@ fi
 APP_GRADLE=android/app/build.gradle
 VN=$(node -p "require('./package.json').version" 2>/dev/null || \
      grep -m1 '"version"' package.json | sed -E 's/.*"version"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/')
-if [ -n "${VN:-}" ] && [ -f "$APP_GRADLE" ]; then
+# Loud, not silent: a no-op here used to look identical to a successful stamp,
+# which is exactly how "the version code never updated" goes unnoticed until
+# the Play Console upload rejects it.
+if [ -z "${VN:-}" ]; then
+  echo "WARNING: couldn't read a version from package.json — versionName/versionCode NOT stamped." >&2
+elif [ ! -f "$APP_GRADLE" ]; then
+  echo "WARNING: $APP_GRADLE not found — versionName/versionCode NOT stamped." >&2
+  echo "         Run 'npx cap add android' (or 'npx cap sync android' if it already exists), then re-run this script." >&2
+else
   sed -i -E "s/(versionName[[:space:]]+)\"[^\"]*\"/\1\"${VN}\"/" "$APP_GRADLE"
 
   # versionCode from semver: major*10000 + minor*100 + patch. Monotonic with the
@@ -58,7 +66,10 @@ if [ -n "${VN:-}" ] && [ -f "$APP_GRADLE" ]; then
   DERIVED=$(( 10#${MA:-0} * 10000 + 10#${MI:-0} * 100 + 10#${PA:-0} ))
   CUR=$(grep -oE 'versionCode[[:space:]]+[0-9]+' "$APP_GRADLE" | grep -oE '[0-9]+' | head -1 || true)
   VC=$DERIVED
-  if [ -n "${CUR:-}" ] && [ "$CUR" -gt "$DERIVED" ]; then VC=$CUR; fi
+  if [ -n "${CUR:-}" ] && [ "$CUR" -gt "$DERIVED" ]; then
+    VC=$CUR
+    echo "  note: existing versionCode (${CUR}) is already higher than ${VN}'s derived code (${DERIVED}) — keeping ${CUR} so it never goes backwards."
+  fi
   sed -i -E "s/(versionCode[[:space:]]+)[0-9]+/\1${VC}/" "$APP_GRADLE"
 
   echo "  versionName    -> ${VN}   versionCode -> ${VC}   (from package.json)"
