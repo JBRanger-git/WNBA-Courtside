@@ -257,13 +257,31 @@ First drafts, not finished tools.
 # Part 4 — Play Store (later)
 
 1. Play Console account — one-off $25.
-2. **Build → Generate Signed Bundle / APK → Android App Bundle**.
-3. Create a keystore. **Back it up.** Lose it and you can never update the
-   listing — you'd publish a new app and abandon your installs. It's the one
-   unrecoverable mistake here.
+2. First AAB ever: **Build → Generate Signed Bundle / APK → Android App
+   Bundle** in Android Studio. Create a keystore when it asks. **Back it up.**
+   Lose it and you can never update the listing — you'd publish a new app and
+   abandon your installs. It's the one unrecoverable mistake here. Studio saves
+   the signing config into `android/app/build.gradle`.
+3. Every AAB after that — same command, every time, whether `android/` exists
+   yet or not:
+
+   ```bash
+   bash scripts/release-aab.sh
+   ```
+
+   Rebuilds the data + web app, creates or syncs `android/`, stamps API 36 and
+   the version (`versionName` from `package.json`; `versionCode` always +1 from
+   whatever's already there — it can't fail to change, since it isn't derived
+   from anything you have to remember to bump), then builds the signed bundle
+   at `android/app/build/outputs/bundle/release/app-release.aab`.
 4. Upload the `.aab`, complete the **Data Safety** form. Yours is nearly empty:
    no ads, no accounts, no tracking, no network calls. That's a real advantage —
    say so in the listing.
+
+Want a new marketing version number (the "1.4.0" shown in the Play Store
+listing, as opposed to the invisible versionCode)? Bump `"version"` in
+`package.json` first, then run the same command above — it's the only manual
+step, and it's optional per build.
 
 ### Settle before you ship
 
@@ -285,6 +303,7 @@ stays a one-variable problem.
 | `npm run data` | CSVs → `src/data/app-data.json` |
 | `npm run bio` | Wikidata (CC0) → college data |
 | `npm run android` | build + sync + open Studio |
+| `bash scripts/release-aab.sh` | full release build → signed `.aab`, versioned. **Every time, same command.** |
 | `claude` | Claude Code in the repo |
 
 ## When it breaks
