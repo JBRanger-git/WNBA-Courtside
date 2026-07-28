@@ -10,10 +10,10 @@
 #   1. Rebuild the data bundle + web app, run the invariant checks (npm run verify)
 #   2. Create the (gitignored) android/ project if it's missing, else sync it
 #   3. Stamp API 36 + the version — versionName from package.json, versionCode
-#      always +1 from whatever's already there (see prep-android-api36.sh; this
-#      is the fix for "the version code never updated" — it no longer depends
-#      on anyone remembering to bump package.json first)
+#      auto-incremented from versionCode.txt (a git-tracked counter that can't be
+#      reset by android/ being regenerated). See prep-android-api36.sh.
 #   4. Build the signed release bundle
+#   5. Commit the bumped versionCode.txt so the counter is preserved for next time
 #
 # Output: android/app/build/outputs/bundle/release/app-release.aab
 #
@@ -53,7 +53,18 @@ echo "== 4/4  build signed release bundle =="
 AAB=android/app/build/outputs/bundle/release/app-release.aab
 echo
 if [ -f "$AAB" ]; then
+  # Persist the bumped counter so the next build starts above this one, even from
+  # a fresh clone. Best-effort: if git isn't available or nothing changed, skip
+  # quietly rather than fail a successful build.
+  if git rev-parse --git-dir >/dev/null 2>&1 && ! git diff --quiet -- versionCode.txt 2>/dev/null; then
+    NEWVC=$(tr -dc '0-9' < versionCode.txt)
+    git add versionCode.txt && git commit -q -m "release: versionCode ${NEWVC}" \
+      && echo "  committed versionCode.txt (${NEWVC}) — run 'git push' to preserve it remotely."
+  fi
+  echo
   echo "DONE -> $AAB"
+  echo "       versionName $(node -p "require('./package.json').version")  versionCode $(tr -dc '0-9' < versionCode.txt)"
+  echo "       Upload this .aab to Play Console."
 else
   echo "gradlew reported success but $AAB wasn't found — check the Gradle output above."
 fi

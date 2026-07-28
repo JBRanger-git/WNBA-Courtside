@@ -57,18 +57,32 @@ elif [ ! -f "$APP_GRADLE" ]; then
 else
   sed -i -E "s/(versionName[[:space:]]+)\"[^\"]*\"/\1\"${VN}\"/" "$APP_GRADLE"
 
-  # versionCode is NOT derived from package.json's semver anymore — deriving it
-  # meant the code only changed when someone remembered to bump package.json
-  # first, which is exactly the recurring "version code never updated" failure.
-  # Instead: always +1 from whatever's already in build.gradle. That's the one
-  # thing Play Store actually requires (each upload's code > the last upload's),
-  # and it now holds unconditionally, every single run, with nothing to remember.
-  CUR=$(grep -oE 'versionCode[[:space:]]+[0-9]+' "$APP_GRADLE" | grep -oE '[0-9]+' | head -1 || echo 0)
-  [ -z "${CUR:-}" ] && CUR=0
-  VC=$((CUR + 1))
+  # versionCode: the one number Play Store actually enforces (each upload's code
+  # must be > the last upload's). It has burned us twice by living somewhere that
+  # resets:
+  #   1) derived from package.json's semver -> only changed if you bumped that
+  #      file first; forget, and it silently repeats.
+  #   2) +1 from android/app/build.gradle -> but android/ is GITIGNORED and gets
+  #      regenerated (fresh clone, `cap add`, or deleting android/ for a clean
+  #      build), which resets build.gradle's code back to Capacitor's template
+  #      default (1) — BELOW what you've already uploaded. Looks identical to
+  #      "the version didn't update."
+  # Fix: the counter lives in versionCode.txt, which IS committed to git, so it
+  # cannot be reset by anything that touches android/. Each run takes the max of
+  # (the tracked counter, whatever's currently in build.gradle) and adds 1 — so
+  # it always moves forward, and can never go backwards even if android/ was just
+  # regenerated with a low default. The new value is written back to BOTH the
+  # tracked file (commit it) and build.gradle.
+  COUNTER_FILE=versionCode.txt
+  TRACKED=$(tr -dc '0-9' < "$COUNTER_FILE" 2>/dev/null || echo 0); [ -z "${TRACKED:-}" ] && TRACKED=0
+  INGRADLE=$(grep -oE 'versionCode[[:space:]]+[0-9]+' "$APP_GRADLE" | grep -oE '[0-9]+' | head -1 || echo 0); [ -z "${INGRADLE:-}" ] && INGRADLE=0
+  BASE=$TRACKED; [ "$INGRADLE" -gt "$BASE" ] && BASE=$INGRADLE
+  VC=$((BASE + 1))
+  echo "$VC" > "$COUNTER_FILE"
   sed -i -E "s/(versionCode[[:space:]]+)[0-9]+/\1${VC}/" "$APP_GRADLE"
 
-  echo "  versionName    -> ${VN}   versionCode -> ${VC} (was ${CUR})   (name from package.json, code always +1)"
+  echo "  versionName -> ${VN}   versionCode -> ${VC} (was ${BASE})"
+  echo "  versionCode source: versionCode.txt (git-tracked, survives android/ regen) — COMMIT it after building."
   grep -E "versionCode|versionName" "$APP_GRADLE" | sed 's/^/  /'
 fi
 
