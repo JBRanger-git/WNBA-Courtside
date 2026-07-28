@@ -617,6 +617,26 @@ function SectionHead({ children, action }) {
 }
 // thStyle / tdStyle are defined by applyTheme() above so they re-theme on mode switch.
 
+// The joined-pill toggle (Standings/Picture, All/East/West, Light/Dark, shot
+// diet/accuracy, Results/Fixtures) — was copy-pasted 7 times with identical
+// structure, only spacing/type-size varying by call site. NOT the same
+// component as the Players tab's G/F/C filter, which uses individually
+// bordered chips with gaps, not a joined bordered strip — that one stays as-is.
+// `options` is [value, label][]; label may be any node (Schedule's count badge).
+function SegmentedControl({ options, active, onChange, margin = "8px 0 2px", padding = "6px 0", fontSize = 11, letterSpacing = .8 }) {
+  return (
+    <div style={{ display: "flex", margin, border: `1px solid ${C.border}`, borderRadius: 3, overflow: "hidden" }}>
+      {options.map(([value, label]) => (
+        <button key={value} onClick={() => onChange(value)} style={{
+          flex: 1, border: "none", padding, fontSize, fontWeight: 700, letterSpacing, textTransform: "uppercase",
+          background: active === value ? C.rule : C.visual, color: active === value ? C.onRule : C.sec,
+          cursor: "pointer", fontFamily: BODY,
+        }}>{label}</button>
+      ))}
+    </div>
+  );
+}
+
 // Injury status pill. Renders the source's exact status text — never abbreviated
 // or paraphrased, so "Day-To-Day" can't quietly read as "Doubtful". Colour is
 // only a severity hint: red for "Out"/"Injured Reserve", accent (the app's
@@ -691,24 +711,10 @@ function HomeScreen({ open, onSearch, theme, setTheme, goLearn }) {
 
         <LearnBanner goLearn={goLearn} />
         <SectionHead action={view === "Standings" ? `${rows.length} teams` : undefined}>{view === "Standings" ? "Standings" : "Playoff picture"}</SectionHead>
-        <div style={{ display: "flex", gap: 0, margin: "8px 0 2px", border: `1px solid ${C.border}`, borderRadius: 3, overflow: "hidden" }}>
-          {["Standings", "Picture"].map(v => (
-            <button key={v} onClick={() => setView(v)} style={{
-              flex: 1, border: "none", padding: "6px 0", fontSize: 11, fontWeight: 700, letterSpacing: .8, textTransform: "uppercase",
-              background: view === v ? C.rule : C.visual, color: view === v ? C.onRule : C.sec, cursor: "pointer", fontFamily: BODY,
-            }}>{v}</button>
-          ))}
-        </div>
+        <SegmentedControl options={[["Standings", "Standings"], ["Picture", "Picture"]]} active={view} onChange={setView} />
 
         {view === "Picture" ? <PlayoffPicture picture={picture} open={open} /> : <>
-        <div style={{ display: "flex", gap: 0, margin: "8px 0 2px", border: `1px solid ${C.border}`, borderRadius: 3, overflow: "hidden" }}>
-          {["All", "East", "West"].map(v => (
-            <button key={v} onClick={() => setConf(v)} style={{
-              flex: 1, border: "none", padding: "6px 0", fontSize: 11, fontWeight: 700, letterSpacing: .8, textTransform: "uppercase",
-              background: conf === v ? C.rule : C.visual, color: conf === v ? C.onRule : C.sec, cursor: "pointer", fontFamily: BODY,
-            }}>{v}</button>
-          ))}
-        </div>
+        <SegmentedControl options={[["All", "All"], ["East", "East"], ["West", "West"]]} active={conf} onChange={setConf} />
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead><tr>
             <th style={{ ...thStyle, textAlign: "center", width: 22 }}>#</th>
@@ -843,11 +849,7 @@ function TeamsScreen({ open, onSearch }) {
     <>
       <Masthead title="Teams" sub="15 clubs" onSearch={onSearch} />
       <div className="noscroll" style={{ flex: 1, overflowY: "auto", padding: "0 14px 12px" }}>
-        <div style={{ display: "flex", margin: "12px 0 4px", border: `1px solid ${C.border}`, borderRadius: 3, overflow: "hidden" }}>
-          {["All", "East", "West"].map(v => (
-            <button key={v} onClick={() => setConf(v)} style={{ flex: 1, border: "none", padding: "6px 0", fontSize: 11, fontWeight: 700, letterSpacing: .8, textTransform: "uppercase", background: conf === v ? C.rule : C.visual, color: conf === v ? C.onRule : C.sec, cursor: "pointer", fontFamily: BODY }}>{v}</button>
-          ))}
-        </div>
+        <SegmentedControl options={[["All", "All"], ["East", "East"], ["West", "West"]]} active={conf} onChange={setConf} margin="12px 0 4px" />
         {rows.map((s, i) => (
           <button key={s.id} onClick={() => open("team", s.id)} style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "11px 0", border: "none", borderBottom: `1px solid ${C.border}`, background: "none", cursor: "pointer", textAlign: "left" }}>
             <Crest team={s} size={34} />
@@ -1634,14 +1636,7 @@ function CompareShotTab({ a, b }) {
   const colorA = safeTeamColor(a.team.color), colorB = safeTeamColor(b.team.color);
   return (
     <>
-      <div style={{ display: "flex", margin: "10px 0 6px", border: `1px solid ${C.border}`, borderRadius: 3, overflow: "hidden" }}>
-        {[["freq", "Shot diet"], ["eff", "Accuracy vs league"]].map(([k, l]) => (
-          <button key={k} onClick={() => setMode(k)} style={{
-            flex: 1, border: "none", padding: "7px 0", fontSize: 10, fontWeight: 700, letterSpacing: .5, textTransform: "uppercase",
-            cursor: "pointer", fontFamily: BODY, background: mode === k ? C.rule : C.visual, color: mode === k ? C.onRule : C.sec,
-          }}>{l}</button>
-        ))}
-      </div>
+      <SegmentedControl options={[["freq", "Shot diet"], ["eff", "Accuracy vs league"]]} active={mode} onChange={setMode} margin="10px 0 6px" padding="7px 0" fontSize={10} letterSpacing={.5} />
       <div style={{ display: "flex", justifyContent: "center", gap: 16, padding: "6px 0 4px" }}>
         <span style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 9.5, color: C.sec }}><span style={{ width: 8, height: 8, borderRadius: 2, background: colorA, boxShadow: `inset 0 0 0 1px ${C.ring}` }} />{shortName(a.name)}</span>
         <span style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 9.5, color: C.sec }}><span style={{ width: 8, height: 8, borderRadius: 2, background: colorB, boxShadow: `inset 0 0 0 1px ${C.ring}` }} />{shortName(b.name)}</span>
@@ -1726,14 +1721,7 @@ function AboutContent({ theme, setTheme }) {
   return (
     <>
       <SectionHead>Appearance</SectionHead>
-      <div style={{ display: "flex", gap: 0, margin: "8px 0 2px", border: `1px solid ${C.border}`, borderRadius: 3, overflow: "hidden" }}>
-        {[["light", "Light"], ["dark", "Dark"]].map(([k, label]) => (
-          <button key={k} onClick={() => setTheme(k)} style={{
-            flex: 1, border: "none", padding: "8px 0", fontSize: 11, fontWeight: 700, letterSpacing: .8, textTransform: "uppercase",
-            background: theme === k ? C.rule : C.visual, color: theme === k ? C.onRule : C.sec, cursor: "pointer", fontFamily: BODY,
-          }}>{label}</button>
-        ))}
-      </div>
+      <SegmentedControl options={[["light", "Light"], ["dark", "Dark"]]} active={theme} onChange={setTheme} padding="8px 0" />
       <p style={{ fontSize: 10.5, lineHeight: 1.5, color: C.mute, padding: "6px 0 0", margin: 0 }}>
         Light is the newspaper “Chalk Court” look; dark is the broadcast “Report” palette. Your choice is remembered.
       </p>
@@ -2155,15 +2143,10 @@ function TeamSeason({ team, openGame }) {
 
   return (
     <>
-      <div style={{ display: "flex", gap: 0, margin: "10px 0 2px", border: `1px solid ${C.border}`, borderRadius: 3, overflow: "hidden" }}>
-        {[["Results", results.length], ["Fixtures", fixtures.length]].map(([v, n]) => (
-          <button key={v} onClick={() => setView(v)} style={{
-            flex: 1, border: "none", padding: "7px 0", fontSize: 11, fontWeight: 700, letterSpacing: .8,
-            textTransform: "uppercase", cursor: "pointer", fontFamily: BODY,
-            background: view === v ? C.rule : C.visual, color: view === v ? C.onRule : C.sec,
-          }}>{v} <span style={{ opacity: .6, fontWeight: 500 }}>{n}</span></button>
-        ))}
-      </div>
+      <SegmentedControl
+        options={[["Results", <>Results <span style={{ opacity: .6, fontWeight: 500 }}>{results.length}</span></>],
+                  ["Fixtures", <>Fixtures <span style={{ opacity: .6, fontWeight: 500 }}>{fixtures.length}</span></>]]}
+        active={view} onChange={setView} margin="10px 0 2px" padding="7px 0" />
 
       {view === "Results" && form.length > 0 && (
         <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "9px 0", borderBottom: `1px solid ${C.border}` }}>
@@ -2485,15 +2468,7 @@ function ShotFingerprint({ p }) {
 
   return (
     <>
-      <div style={{ display: "flex", margin: "10px 0 8px", border: `1px solid ${C.border}`, borderRadius: 3, overflow: "hidden" }}>
-        {[["freq", "Shot diet"], ["eff", "Accuracy vs league"]].map(([k, l]) => (
-          <button key={k} onClick={() => setMode(k)} style={{
-            flex: 1, border: "none", padding: "7px 0", fontSize: 11, fontWeight: 700, letterSpacing: .7,
-            textTransform: "uppercase", cursor: "pointer", fontFamily: BODY,
-            background: mode === k ? C.rule : C.visual, color: mode === k ? C.onRule : C.sec,
-          }}>{l}</button>
-        ))}
-      </div>
+      <SegmentedControl options={[["freq", "Shot diet"], ["eff", "Accuracy vs league"]]} active={mode} onChange={setMode} margin="10px 0 8px" padding="7px 0" letterSpacing={.7} />
 
       <svg viewBox={`-0.5 -0.5 ${CW + 1} ${CD + 1}`} role="img"
            aria-label={`Shot zone map for ${p.name}`}
