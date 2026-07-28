@@ -57,22 +57,18 @@ elif [ ! -f "$APP_GRADLE" ]; then
 else
   sed -i -E "s/(versionName[[:space:]]+)\"[^\"]*\"/\1\"${VN}\"/" "$APP_GRADLE"
 
-  # versionCode from semver: major*10000 + minor*100 + patch. Monotonic with the
-  # version and far above the small legacy codes (1-9), so every release cleanly
-  # exceeds the last upload without anyone tracking Play Console. Take max() with
-  # whatever's already in build.gradle so it can never go backwards.
-  MA=${VN%%.*}; REST=${VN#*.}; MI=${REST%%.*}; PA=${REST#*.}; PA=${PA%%[!0-9]*}
-  [ "$MI" = "$VN" ] && MI=0; [ -z "$PA" ] && PA=0
-  DERIVED=$(( 10#${MA:-0} * 10000 + 10#${MI:-0} * 100 + 10#${PA:-0} ))
-  CUR=$(grep -oE 'versionCode[[:space:]]+[0-9]+' "$APP_GRADLE" | grep -oE '[0-9]+' | head -1 || true)
-  VC=$DERIVED
-  if [ -n "${CUR:-}" ] && [ "$CUR" -gt "$DERIVED" ]; then
-    VC=$CUR
-    echo "  note: existing versionCode (${CUR}) is already higher than ${VN}'s derived code (${DERIVED}) — keeping ${CUR} so it never goes backwards."
-  fi
+  # versionCode is NOT derived from package.json's semver anymore — deriving it
+  # meant the code only changed when someone remembered to bump package.json
+  # first, which is exactly the recurring "version code never updated" failure.
+  # Instead: always +1 from whatever's already in build.gradle. That's the one
+  # thing Play Store actually requires (each upload's code > the last upload's),
+  # and it now holds unconditionally, every single run, with nothing to remember.
+  CUR=$(grep -oE 'versionCode[[:space:]]+[0-9]+' "$APP_GRADLE" | grep -oE '[0-9]+' | head -1 || echo 0)
+  [ -z "${CUR:-}" ] && CUR=0
+  VC=$((CUR + 1))
   sed -i -E "s/(versionCode[[:space:]]+)[0-9]+/\1${VC}/" "$APP_GRADLE"
 
-  echo "  versionName    -> ${VN}   versionCode -> ${VC}   (from package.json)"
+  echo "  versionName    -> ${VN}   versionCode -> ${VC} (was ${CUR})   (name from package.json, code always +1)"
   grep -E "versionCode|versionName" "$APP_GRADLE" | sed 's/^/  /'
 fi
 

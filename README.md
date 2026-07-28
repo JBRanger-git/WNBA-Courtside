@@ -37,12 +37,15 @@ npx cap add android    # first time only
 npm run android        # build + sync + open Android Studio
 ```
 
-Then in Android Studio: **Build → Build Bundle(s)/APK(s)** for a test `.apk`, or
-**Build → Generate Signed Bundle** for a Play `.aab`.
+**First AAB ever:** in Android Studio, **Build → Generate Signed Bundle → Android
+App Bundle**, and create a keystore when it asks.
 
 > Keep the keystore and its password somewhere safe and backed up. Lose it and
 > you can never update the listing — you'd have to publish a new app and lose
 > your install base. This is the single most unrecoverable mistake available.
+
+**Every AAB after that** — same command, every time, whether `android/` exists
+yet or not: `bash scripts/release-aab.sh`. Full details in [SETUP.md](SETUP.md#part-4--play-store-later).
 
 ## Scripts
 
@@ -54,6 +57,7 @@ Then in Android Studio: **Build → Build Bundle(s)/APK(s)** for a test `.apk`, 
 | `npm run verify` | data → build → smoke. **Run before every commit.** |
 | `npm run dev` | browser dev server |
 | `npm run android` | build + sync + open Android Studio |
+| `bash scripts/release-aab.sh` | full release build → signed `.aab`, versioned. Same command every time. |
 
 ## Working with Claude Code
 
