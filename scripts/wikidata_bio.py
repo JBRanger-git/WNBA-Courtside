@@ -14,6 +14,19 @@ structure, so it would be a field that's blank 95% of the time. Draft pick
 (P647) isn't pulled either — WNBA draft picks are thinly documented on
 Wikidata compared to college, so it would mostly render blank for no gain.
 
+P69 ("educated at") is NOT college-only — it returns every school a player has
+a Wikidata statement for, high school included, and there's no ordering that
+puts college first. Verified via a CI diagnostic dump against real players
+(A'ja Wilson, Breanna Stewart, Diana Taurasi, Caitlin Clark) before this was
+built: every genuine college/university's `instance of` (P31) label contains
+"university" or "college" (e.g. "public research university", "land-grant
+university", plain "university"); every high school's does not (it's "high
+school", "school", "private school", "religious school" instead). So the
+query below only binds ?college when at least one of its P31 types matches
+that pattern — this is what fixed A'ja Wilson previously showing "Heathwood
+Hall Episcopal School" (her high school) instead of "University of South
+Carolina".
+
 Matching is by name, which is the weak link — see reconcile() below. Anything
 unmatched is left blank rather than guessed. A blank bio field renders as
 nothing; a wrong one poisons the whole app's credibility.
@@ -31,6 +44,7 @@ Usage:
 """
 import csv
 import json
+import re
 import sys
 import unicodedata
 from pathlib import Path
@@ -54,7 +68,19 @@ WHERE {
   ?league rdfs:label "Women's National Basketball Association"@en .
   ?team wdt:P118 ?league .
   ?player wdt:P54 ?team .
-  OPTIONAL { ?player wdt:P69  ?college . }
+  OPTIONAL {
+    ?player wdt:P69 ?college .
+    ?college wdt:P31 ?collegeType .
+    ?collegeType rdfs:label ?collegeTypeLabelEn . FILTER(LANG(?collegeTypeLabelEn) = "en")
+    # NOT CONTAINS "school" matters: some elite prep high schools are typed
+    # "university-preparatory school" / "college-preparatory school" on
+    # Wikidata, which otherwise pass the university/college substring check
+    # (confirmed via a CI diagnostic — Jordin Canada's "Windward School" leaked
+    # through as her college this way before this line was added).
+    FILTER((CONTAINS(LCASE(?collegeTypeLabelEn), "university") ||
+            CONTAINS(LCASE(?collegeTypeLabelEn), "college")) &&
+           !CONTAINS(LCASE(?collegeTypeLabelEn), "school"))
+  }
   OPTIONAL { ?player wdt:P569 ?dob . }
   OPTIONAL { ?player wdt:P27  ?country . }
   OPTIONAL {
@@ -103,9 +129,16 @@ def reconcile(app_data_json: Path, out_csv: Path):
         # data doesn't make for you.
         if key in wd and wd[key].get("college"):
             continue
+        # Occasionally the label service can't resolve an institution's English
+        # label at all and collegeLabel falls back to the raw QID (e.g.
+        # "Q1784748") — that's not a name, so treat it as no college rather
+        # than showing a QID in the app.
+        college = b.get("collegeLabel", {}).get("value")
+        if college and re.fullmatch(r"Q\d+", college):
+            college = None
         wd[key] = {
             "qid": b["player"]["value"].rsplit("/", 1)[-1],
-            "college": b.get("collegeLabel", {}).get("value"),
+            "college": college,
             "dob": b.get("dob", {}).get("value", "")[:10] or None,
             "country": b.get("countryLabel", {}).get("value"),
             "honours": b.get("honours", {}).get("value") or None,

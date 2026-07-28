@@ -205,6 +205,12 @@ def build(csv_dir: Path, out_dir: Path):
     # whether the core bio above was freshly built or preserved from PREV, since
     # dim_players.csv (core bio) is basically never present on the daily run but
     # dim_player_bio.csv (scripts/wikidata_bio.py) is meant to run every day.
+    # wikidata_bio.py writes one row per CURRENT roster player every time it
+    # runs successfully (whether matched or not — see its reconcile()), so a
+    # present-but-empty field here is authoritative, not "we didn't check": it
+    # must CLEAR a stale value from an earlier, less accurate query rather than
+    # leave it hanging around forever (same contract as INJ below — a fetch
+    # that now correctly finds nothing overwrites, it doesn't just skip).
     bc = csv_dir/"dim_player_bio.csv"
     if bc.exists():
         n_college = 0
@@ -212,11 +218,13 @@ def build(csv_dir: Path, out_dir: Path):
             try: aid = int(r["athlete_id"])
             except (ValueError, KeyError): continue
             if aid not in keep: continue
-            extra = {}
-            if r.get("college"): extra["college"] = r["college"]; n_college += 1
-            if r.get("country"): extra["country"] = r["country"]
-            if r.get("honours"): extra["honours"] = r["honours"]
-            if extra: BIO.setdefault(aid, {}).update(extra)
+            e = BIO.setdefault(aid, {})
+            if r.get("college"): e["college"] = r["college"]; n_college += 1
+            else: e.pop("college", None)
+            if r.get("country"): e["country"] = r["country"]
+            else: e.pop("country", None)
+            if r.get("honours"): e["honours"] = r["honours"]
+            else: e.pop("honours", None)
         print(f"  wikidata bio   {n_college} with a college")
     else:
         print("  wikidata bio   (skipped — run scripts/wikidata_bio.py to add college)")
