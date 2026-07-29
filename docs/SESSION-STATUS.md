@@ -84,7 +84,8 @@ top performers; #11 light/dark theme; #12 device-frame skill; #13 dark shot char
 ## Data pipeline (current)
 
 ```
-Daily 11:00 UTC · refresh-data.yml  (fetch_wnba.R + fetch_news.R + fetch_lines.R → build_data.py)
+Twice daily, 11:00 + 17:00 UTC · refresh-data.yml  (fetch_wnba.R + fetch_news.R + fetch_lines.R → build_data.py)
+  the 17:00 pass exists to catch stragglers — a game wehoop hadn't published yet at 11:00
 Weekly        · refresh-shots.yml   (fetch_shots.R → shot fingerprints)
 Manual        · backfill-history.yml (backfill_history.R → PHIST/THIST) — dispatch from Actions tab
         │
