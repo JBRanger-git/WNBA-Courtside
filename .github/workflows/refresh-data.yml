@@ -5,17 +5,17 @@ name: Refresh WNBA data
 # nothing on your machine needs to be on.
 on:
   schedule:
-    # Two passes, not one. The 11:00 UTC run alone left last night's late West
+    # Two passes, not one. A single morning run left last night's late West
     # Coast games missing for a full extra day whenever wehoop's own source was
     # still slow to publish them a few hours after the final buzzer — confirmed
-    # for real on 2026-07-29: the 11:00 run (which actually fired ~12:55 UTC,
+    # for real on 2026-07-29: an 11:00 UTC run (which actually fired ~12:55 UTC,
     # GitHub's own scheduler queuing delay) still had no box score for two games
     # that had finished 9-11 hours earlier. Moving the run *earlier* would only
     # shrink the buffer after the last game of the night and make that worse.
-    # A same-day second pass six hours later catches exactly this case — a
+    # A same-day second pass a few hours later catches exactly this case — a
     # straggler that wasn't ready at the first attempt usually is by the second.
-    - cron: '0 11 * * *'      # ~morning in North America
-    - cron: '0 17 * * *'      # ~afternoon in North America — catches stragglers from the 11:00 run
+    - cron: '0 10 * * *'      # ~morning in North America
+    - cron: '0 14 * * *'      # ~midday in North America — catches stragglers from the 10:00 run
   workflow_dispatch:           # lets us (and you) run it on demand from the Actions tab
 
 permissions:
