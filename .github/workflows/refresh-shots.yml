@@ -1,12 +1,18 @@
-name: Refresh WNBA shot charts
+name: Refresh WNBA shot charts (manual)
 
-# Weekly full refresh: like the daily job, but ALSO pulls play-by-play and
-# regenerates the shot fingerprint (the daily job preserves it untouched, since
-# it's the heaviest pull and the riskiest thing to regenerate). Runs on GitHub's
-# servers; commits the refreshed snapshot only if it changed and passed the gate.
+# On-demand only — the automatic schedule moved to refresh-data.yml's daily
+# job, which now runs fetch_shots.R itself. That used to be unsafe to run
+# often (one bad game blocked the whole season's shot data on a single
+# all-or-nothing check), so it was kept to a weekly cadence here. build_data.py
+# now reconciles per (athlete, game) instead, so a straggler drops on its own
+# without blocking anything else, and there's no reason to hold shot data back
+# to once a week any more.
+#
+# What's left here: a manual trigger for an out-of-band full recompute — e.g.
+# after a fix to the shot-zone calibration logic in fetch_shots.R itself, where
+# you want to force-regenerate everything immediately rather than wait for the
+# next daily run.
 on:
-  schedule:
-    - cron: '30 10 * * 1'      # weekly, Mondays 10:30 UTC
   workflow_dispatch:
 
 permissions:
@@ -73,7 +79,7 @@ jobs:
             echo "No change in app-data.json — nothing to commit."
           else
             git add src/data/app-data.json
-            git commit -m "data: weekly shot-chart refresh $(date -u +%Y-%m-%d)"
+            git commit -m "data: manual shot-chart refresh $(date -u +%Y-%m-%d)"
             git push origin HEAD:${{ github.ref_name }}
             echo "Pushed refreshed snapshot."
           fi

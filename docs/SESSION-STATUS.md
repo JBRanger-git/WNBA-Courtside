@@ -84,9 +84,11 @@ top performers; #11 light/dark theme; #12 device-frame skill; #13 dark shot char
 ## Data pipeline (current)
 
 ```
-Twice daily, 10:00 + 14:00 UTC · refresh-data.yml  (fetch_wnba.R + fetch_news.R + fetch_lines.R → build_data.py)
+Twice daily, 10:00 + 14:00 UTC · refresh-data.yml  (fetch_wnba.R + fetch_shots.R + fetch_news.R + fetch_lines.R → build_data.py)
   the 14:00 pass exists to catch stragglers — a game wehoop hadn't published yet at 10:00
-Weekly        · refresh-shots.yml   (fetch_shots.R → shot fingerprints)
+  fetch_shots.R moved here from weekly once build_data.py started reconciling shot data
+  per (athlete, game) instead of season-wide — one straggler no longer blocks everything else
+Manual        · refresh-shots.yml   (fetch_shots.R → shot fingerprints) — on-demand full recompute only
 Manual        · backfill-history.yml (backfill_history.R → PHIST/THIST) — dispatch from Actions tab
         │
         ▼  build_data.py → src/data/app-data.json (+ copy to docs/app-data.json)
@@ -200,6 +202,6 @@ launcher icons already in `android/app/src/main/res/mipmap-*/`; `android/` is gi
 - `scripts/fetch_wnba.R` · `fetch_news.R` · `fetch_lines.R` · `fetch_shots.R` ·
   `backfill_history.R` — the R fetches (all ESPN-backed → CI-only).
 - `scripts/build_data.py` — CSV → `app-data.json`. The one place numbers are shaped.
-- `.github/workflows/` — `refresh-data.yml` (daily), `refresh-shots.yml` (weekly),
-  `backfill-history.yml` (manual).
+- `.github/workflows/` — `refresh-data.yml` (daily, includes shot data now),
+  `refresh-shots.yml` (manual on-demand recompute), `backfill-history.yml` (manual).
 - `CLAUDE.md` — project bible (data gotchas, imagery/legal boundaries, design system).

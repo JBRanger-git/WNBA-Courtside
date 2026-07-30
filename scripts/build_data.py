@@ -274,19 +274,67 @@ def build(csv_dir: Path, out_dir: Path):
         TADV = {int(k): v for k, v in (PREV.get("TADV") or {}).items() if int(k) in team_ids}
         print(f"  team identity  {len(TADV)}  (preserved — no fact_team_advanced.csv)")
 
-    # 72k pbp rows in, ~15 numbers per player out. NEVER ship the plays to the
-    # client — fact_pbp is ~54 MB as JSON and the app needs none of it.
+    # 72k pbp rows in, ~15 numbers per player out (plus a per-game breakdown —
+    # see PG below). NEVER ship the plays to the client — fact_pbp is ~54 MB as
+    # JSON and the app needs none of it.
     SHOTS = None
     pbp_path = csv_dir/"fact_pbp.csv"
     if pbp_path.exists():
-        fg = [r for r in read(pbp_path)
-              if r["shooting_play"]=="TRUE" and r["shot_zone"].strip() and r["athlete_id_1"].strip()]
+        fg_rows = [r for r in read(pbp_path)
+                   if r["shooting_play"]=="TRUE" and r["shot_zone"].strip()
+                   and r["athlete_id_1"].strip() and r.get("game_id","").strip()]
         zi = {z:i for i,z in enumerate(ZONES)}
+
+        # Per-(athlete, game) FGA + points, from fetch_shots.R's own box pull —
+        # the reconciliation source AND the "pts" figure the per-game chart needs
+        # (free throws aren't in the shot data, so points can't be derived from
+        # makes alone).
+        box_ag = {}
+        for r in read(csv_dir/"fact_player_box.csv"):
+            gid = r.get("game_id","").strip()
+            if not gid or not r["athlete_id"].strip(): continue
+            box_ag[(int(r["athlete_id"]), gid)] = (
+                int(num(r.get("field_goals_attempted"))),
+                int(num(r.get("points"))) if r.get("points","").strip() else None,
+            )
+
+        # Validation gate, per (athlete, game) rather than season-wide: a pair only
+        # counts if the pbp shot count for that player in that game EXACTLY matches
+        # the box score's FGA for the same pair. One unsynced or misattributed game
+        # is dropped on its own — "a blank field beats a wrong one" — instead of the
+        # old behaviour where any drift anywhere blocked the entire commit. This is
+        # also what makes running the fetch daily safe: yesterday's game being a
+        # beat behind no longer holds back the other 170.
+        pbp_ag_count = Counter()
+        for r in fg_rows:
+            pbp_ag_count[(int(r["athlete_id_1"]), r["game_id"])] += 1
+        keep_ag = {ag for ag, n in pbp_ag_count.items() if box_ag.get(ag, (None, None))[0] == n}
+        dropped = len(pbp_ag_count) - len(keep_ag)
+        total_pairs = len(pbp_ag_count)
+        drop_rate = dropped / total_pairs if total_pairs else 0
+        print(f"  shots validate {len(keep_ag):,}/{total_pairs:,} player-games reconciled exactly "
+              f"({dropped:,} dropped, {drop_rate*100:.1f}%)")
+        # A LOOSE sanity ceiling, not the primary gate any more — per-pair exact
+        # matching will always drop a small routine tail (a game whose box score
+        # hasn't landed yet). This only fires if something is systemically broken,
+        # e.g. athlete_id_1 no longer means "the shooter" (same failure mode the
+        # old single 1% gate existed to catch).
+        if total_pairs and drop_rate >= 0.15:
+            raise SystemExit(f"Shot data failed reconciliation ({drop_rate*100:.1f}% of player-games "
+                              "didn't match box FGA) — refusing to write a bad fingerprint.")
+
+        fg = [r for r in fg_rows if (int(r["athlete_id_1"]), r["game_id"]) in keep_ag]
+
         per = defaultdict(lambda: {"z":[[0,0] for _ in ZONES], "c":Counter()})
+        per_game = defaultdict(lambda: defaultdict(lambda: [[0,0] for _ in ZONES]))
         for r in fg:
-            a = int(r["athlete_id_1"]); i = zi[r["shot_zone"]]
+            a = int(r["athlete_id_1"]); gid = r["game_id"]; i = zi[r["shot_zone"]]
+            made = r["shot_result"]=="Made"
             per[a]["z"][i][0] += 1
-            if r["shot_result"]=="Made": per[a]["z"][i][1] += 1
+            per_game[a][gid][i][0] += 1
+            if made:
+                per[a]["z"][i][1] += 1
+                per_game[a][gid][i][1] += 1
             b = creation_bucket(r["type_text"])
             if b: per[a]["c"][b] += 1
         lg = [[0,0] for _ in ZONES]
@@ -311,26 +359,37 @@ def build(csv_dir: Path, out_dir: Path):
                           for i in range(len(ZONES))],
                      "a":[d["z"][i][0] for i in range(len(ZONES))],
                      "c":[round(d["c"][b]/c*100,1) for b in CREATE] if c else None}
-        SHOTS = {"LG":LG, "P":SP}
-        print(f"  shots          {len(fg):,} FG attempts -> {len(SP)} fingerprints (>= {MIN_FGA} FGA)")
 
-        # Validation gate: pbp shooter counts must reconcile against box-score FGA.
-        # If they drift, athlete_id_1 has stopped meaning "the shooter".
-        pb = read(csv_dir/"fact_player_box.csv")
-        box_fga = sum(int(r["field_goals_attempted"]) for r in pb if r["field_goals_attempted"].strip())
-        drift = abs(len(fg)-box_fga)/max(box_fga,1)
-        print(f"  validation     pbp FGA {len(fg):,} vs box FGA {box_fga:,}  ({drift*100:.2f}% drift)  "
-              f"{'ok' if drift<0.01 else '*** CHECK athlete_id_1 ***'}")
-        if drift >= 0.01:
-            raise SystemExit("Shot data failed reconciliation — refusing to write a bad fingerprint.")
+        # Per-game fingerprints: makes/attempts by zone, no percentages — a single
+        # game's ~10-20 attempts is far short of MIN_FGA/MIN_ZONE above, so a
+        # per-zone % here would be exactly the fabricated precision those floors
+        # exist to prevent. Flat array per game: [pts, a0,m0, a1,m1, a2,m2, a3,m3, a4,m4].
+        PG = {}
+        for a, games in per_game.items():
+            if a not in keep: continue
+            entry = {}
+            for gid, z in games.items():
+                pts = box_ag.get((a, gid), (None, None))[1]
+                if pts is None: continue   # no matching box points — skip, don't guess
+                flat = [pts]
+                for i in range(len(ZONES)): flat += z[i]
+                entry[gid] = flat
+            if entry: PG[a] = entry
+        n_pg = sum(len(v) for v in PG.values())
+
+        SHOTS = {"LG":LG, "P":SP, "PG":PG}
+        print(f"  shots          {len(fg):,} FG attempts -> {len(SP)} season fingerprints (>= {MIN_FGA} FGA), "
+              f"{n_pg:,} player-games across {len(PG)} players")
     else:
-        # Preserve the last good fingerprint. The shot chart moves slowly and is the
-        # riskiest thing to regenerate, so the daily refresh leaves it untouched and
-        # carries it forward. Refresh it deliberately by dropping a fresh fact_pbp.csv
-        # into data/csv and re-running this script.
+        # Preserve the last good fingerprint (season AND per-game). The shot chart
+        # moves slowly and is the riskiest thing to regenerate, so the daily
+        # refresh leaves it untouched and carries it forward when fact_pbp.csv is
+        # missing (e.g. a manual build_data.py run without re-fetching). Refresh
+        # it deliberately by dropping a fresh fact_pbp.csv into data/csv.
         SHOTS = PREV.get("SHOTS")
         n = len(SHOTS["P"]) if SHOTS and SHOTS.get("P") else 0
-        print(f"  shots          (no fact_pbp.csv — preserved {n} fingerprints from prior build)")
+        n_pg = sum(len(v) for v in (SHOTS.get("PG") or {}).values()) if SHOTS else 0
+        print(f"  shots          (no fact_pbp.csv — preserved {n} season fingerprints, {n_pg:,} player-games)")
 
     # --- per-game box detail (completed games only): team totals + top scorers.
     # Compact, keyed by game_id with home/away. Absent for very recent live
