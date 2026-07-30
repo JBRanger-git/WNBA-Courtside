@@ -285,10 +285,11 @@ def build(csv_dir: Path, out_dir: Path):
                    and r["athlete_id_1"].strip() and r.get("game_id","").strip()]
         zi = {z:i for i,z in enumerate(ZONES)}
 
-        # Per-(athlete, game) FGA + points, from fetch_shots.R's own box pull —
-        # the reconciliation source AND the "pts" figure the per-game chart needs
-        # (free throws aren't in the shot data, so points can't be derived from
-        # makes alone).
+        # Per-(athlete, game) FGA + points + free throws, from fetch_shots.R's own
+        # box pull — FGA is the reconciliation source; points/FTM/FTA are the
+        # extra figures the per-game chart needs beyond the zone breakdown itself
+        # (free throws have no court location, so they're never in the shot data —
+        # that's also why FG makes alone never reconcile to points on their own).
         box_ag = {}
         for r in read(csv_dir/"fact_player_box.csv"):
             gid = r.get("game_id","").strip()
@@ -296,6 +297,8 @@ def build(csv_dir: Path, out_dir: Path):
             box_ag[(int(r["athlete_id"]), gid)] = (
                 int(num(r.get("field_goals_attempted"))),
                 int(num(r.get("points"))) if r.get("points","").strip() else None,
+                int(num(r.get("free_throws_made"))),
+                int(num(r.get("free_throws_attempted"))),
             )
 
         # Validation gate, per (athlete, game) rather than season-wide: a pair only
@@ -308,7 +311,7 @@ def build(csv_dir: Path, out_dir: Path):
         pbp_ag_count = Counter()
         for r in fg_rows:
             pbp_ag_count[(int(r["athlete_id_1"]), r["game_id"])] += 1
-        keep_ag = {ag for ag, n in pbp_ag_count.items() if box_ag.get(ag, (None, None))[0] == n}
+        keep_ag = {ag for ag, n in pbp_ag_count.items() if box_ag.get(ag, (None, None, None, None))[0] == n}
         dropped = len(pbp_ag_count) - len(keep_ag)
         total_pairs = len(pbp_ag_count)
         drop_rate = dropped / total_pairs if total_pairs else 0
@@ -363,16 +366,19 @@ def build(csv_dir: Path, out_dir: Path):
         # Per-game fingerprints: makes/attempts by zone, no percentages — a single
         # game's ~10-20 attempts is far short of MIN_FGA/MIN_ZONE above, so a
         # per-zone % here would be exactly the fabricated precision those floors
-        # exist to prevent. Flat array per game: [pts, a0,m0, a1,m1, a2,m2, a3,m3, a4,m4].
+        # exist to prevent. Free throws (no court location, so no zone of their
+        # own) ride along as two trailing numbers rather than a 6th fake zone.
+        # Flat array per game: [pts, a0,m0, a1,m1, a2,m2, a3,m3, a4,m4, ftm, fta].
         PG = {}
         for a, games in per_game.items():
             if a not in keep: continue
             entry = {}
             for gid, z in games.items():
-                pts = box_ag.get((a, gid), (None, None))[1]
+                _, pts, ftm, fta = box_ag.get((a, gid), (None, None, None, None))
                 if pts is None: continue   # no matching box points — skip, don't guess
                 flat = [pts]
                 for i in range(len(ZONES)): flat += z[i]
+                flat += [ftm or 0, fta or 0]
                 entry[gid] = flat
             if entry: PG[a] = entry
         n_pg = sum(len(v) for v in PG.values())

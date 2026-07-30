@@ -22,10 +22,14 @@ const checks = [
   ['league corner3 FG% > above-break FG%', D.SHOTS.LG.fg[3] > D.SHOTS.LG.fg[4]],
   // PG (per-game shot data) doesn't exist in every snapshot yet — it's new and
   // only populated once the daily refresh runs fetch_shots.R again. Passes
-  // trivially until then; once present, actually checks its shape.
+  // trivially until then; once present, actually checks its shape. Accepts
+  // both the pre-FT shape (11: pts + 5 zone pairs) and the current one (13:
+  // + trailing ftm,fta) since the committed snapshot may still be mid-rollout.
   ['per-game shots well-formed (if present)', !D.SHOTS.PG || Object.values(D.SHOTS.PG).every(games =>
-    Object.values(games).every(row => row.length === 11 && row.every(x => Number.isFinite(x) && x >= 0)
-      && [0,1,2,3,4].every(i => row[2+i*2] <= row[1+i*2])))],
+    Object.values(games).every(row => (row.length === 11 || row.length === 13)
+      && row.every(x => Number.isFinite(x) && x >= 0)
+      && [0,1,2,3,4].every(i => row[2+i*2] <= row[1+i*2])
+      && (row.length < 13 || row[11] <= row[12])))],
   ['team bio has Toronto multi-venue', D.TEAM_BIO['131935'].alt.length === 3],
   ['bundle embeds the data', js.includes("A'ja Wilson")],
   // Tripwire for a raw-pbp leak (~54 MB), not a tight budget; checks the largest

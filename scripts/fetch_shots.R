@@ -132,18 +132,22 @@ for (z in ZONES) {
                   if (nrow(r)) r$fg else "-"))
 }
 
-# --- fact_player_box.csv: per-(athlete,game) FGA + points. FGA is
-# build_data's reconciliation gate (now per-game, not just season-wide);
-# points is the only extra figure the per-game shot chart needs beyond what's
-# derivable from the zone breakdown itself (free throws aren't in the shot
-# data, so points can't be reconstructed from makes alone).
+# --- fact_player_box.csv: per-(athlete,game) FGA + points + free throws.
+# FGA is build_data's reconciliation gate (now per-game, not just
+# season-wide); points, free_throws_made, free_throws_attempted are the extra
+# figures the per-game shot chart needs beyond what's derivable from the zone
+# breakdown itself (free throws have no court location, so they're never in
+# the shot/pbp data at all -- that's also why FGM*2/3 alone never reconciles
+# to points on its own).
 player_box <- load_wnba_player_box(seasons = SEASON)
 pbx <- regular(player_box)
 fact_player_box <- tibble(
   athlete_id             = chr(pbx$athlete_id),
   game_id                = chr(pbx$game_id),
   field_goals_attempted  = num(pbx$field_goals_attempted),
-  points                 = num(pbx$points)
+  points                 = num(pbx$points),
+  free_throws_made       = num(pbx$free_throws_made),
+  free_throws_attempted  = num(pbx$free_throws_attempted)
 )
 write_csv(fact_player_box, file.path(OUT, "fact_player_box.csv"), na = "")
 message("  fact_player_box.csv  ", nrow(fact_player_box), " rows  (box FGA=",
