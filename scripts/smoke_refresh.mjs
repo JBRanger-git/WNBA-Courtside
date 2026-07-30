@@ -35,6 +35,14 @@ const checks = [
   // miscalibrated shot-zone derivation before it can be committed.
   ['restricted area is the top-FG% zone', D.SHOTS.LG.fg[0] === Math.max(...D.SHOTS.LG.fg) && D.SHOTS.LG.fg[0] >= 55 && D.SHOTS.LG.fg[0] <= 72],
   ['corner 3 FG% >= above-break 3 FG%',   D.SHOTS.LG.fg[3] >= D.SHOTS.LG.fg[4] - 1],
+  // Per-game shot data (SHOTS.PG) — this workflow always runs fetch_shots.R
+  // first, so unlike smoke.mjs's snapshot-agnostic check, PG must be present
+  // and non-trivial here. Each row is [pts, a0,m0,a1,m1,a2,m2,a3,m3,a4,m4]:
+  // fixed length, non-negative, and makes never exceeding attempts per zone.
+  ['per-game shot data present',          D.SHOTS.PG && Object.values(D.SHOTS.PG).some(g => Object.keys(g).length > 0)],
+  ['per-game shot rows well-formed',      D.SHOTS.PG && Object.values(D.SHOTS.PG).every(games =>
+    Object.values(games).every(row => row.length === 11 && row.every(x => Number.isFinite(x) && x >= 0)
+      && [0,1,2,3,4].every(i => row[2+i*2] <= row[1+i*2])))],
   ['bundle embeds the data',              js.length > 50000],
   // Cap is a raw-pbp-leak tripwire (pbp is ~54 MB), not a tight budget. Checks
   // the largest chunk, with headroom for the head-to-head game log (GHIST) — a

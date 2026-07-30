@@ -510,7 +510,7 @@ function ExitConfirm({ onCancel, onExit }) {
 // Player quick view, opened from a box-score row (GameDetail's Top performers)
 // without leaving the game — same scrim+card pattern as ExitConfirm, tap the
 // scrim or Close to dismiss. "Full profile" hands off to the real navigation.
-function PlayerQuickView({ player, line, onClose, onFullProfile }) {
+function PlayerQuickView({ player, line, gameId, onClose, onFullProfile }) {
   return (
     <div role="dialog" aria-modal="true" aria-label={`${player.name} quick view`}
       onClick={onClose} className="cs-scrim"
@@ -537,6 +537,11 @@ function PlayerQuickView({ player, line, onClose, onFullProfile }) {
                 <div style={{ fontSize: 8.5, letterSpacing: .6, color: C.mute, marginTop: 1 }}>{k}</div>
               </div>
             ))}
+          </div>
+
+          <div style={{ fontSize: 9, letterSpacing: .8, textTransform: "uppercase", color: C.mute, marginBottom: 6 }}>Shot chart &middot; this game</div>
+          <div style={{ marginBottom: 14 }}>
+            <GameFingerprint p={player} gameId={gameId} />
           </div>
 
           <div style={{ fontSize: 9, letterSpacing: .8, textTransform: "uppercase", color: C.mute, marginBottom: 6 }}>Season average &middot; {player.gp} GP</div>
@@ -1349,7 +1354,7 @@ function GameDetail({ game: g, onBack, openTeam, openPlayer, openGame }) {
       </div>
 
       {quickView && (
-        <PlayerQuickView player={quickView.player} line={quickView.line}
+        <PlayerQuickView player={quickView.player} line={quickView.line} gameId={g.id}
           onClose={() => setQuickView(null)}
           onFullProfile={() => { const id = quickView.player.id; setQuickView(null); openPlayer(id); }} />
       )}
@@ -2500,8 +2505,44 @@ const COURT = LIGHT;
 // its zone is near-white or fully saturated.
 const HALO = { stroke: "#FFFFFF", strokeWidth: 0.85, paintOrder: "stroke", strokeLinejoin: "round" };
 
-function ZoneLabel({ x, y, name, value, delta, mode }) {
-  if (value == null) return null;
+// Court fills + markings, shared by the season fingerprint (ShotFingerprint)
+// and the compact per-game chart (GameFingerprint) — same geometry either
+// way, only `tone(zoneIndex)` and the labels passed as children differ.
+function CourtShape({ tone, children }) {
+  return (
+    <>
+      {/* fills painted back to front — overlap does the clipping */}
+      <rect x={0} y={0} width={CW} height={CD} fill={tone(4).c} fillOpacity={tone(4).o} />
+      <rect x={0} y={sy(CORNER_MEET)} width={CORNER_X} height={CORNER_MEET} fill={tone(3).c} fillOpacity={tone(3).o} />
+      <rect x={CW - CORNER_X} y={sy(CORNER_MEET)} width={CORNER_X} height={CORNER_MEET} fill={tone(3).c} fillOpacity={tone(3).o} />
+      <path d={`${ARC_D} L ${CW - CORNER_X} ${CD} L ${CORNER_X} ${CD} Z`} fill={tone(2).c} fillOpacity={tone(2).o} />
+      <rect x={CW / 2 - 8} y={sy(19)} width={16} height={19} fill={tone(1).c} fillOpacity={tone(1).o} />
+      <path d={`M ${CW / 2 - RA_R} ${CD} L ${CW / 2 - RA_R} ${sy(HOOP_Y)} A ${RA_R} ${RA_R} 0 0 1 ${CW / 2 + RA_R} ${sy(HOOP_Y)} L ${CW / 2 + RA_R} ${CD} Z`}
+            fill={tone(0).c} fillOpacity={tone(0).o} />
+
+      {/* court markings */}
+      <g fill="none" stroke={COURT.text} strokeWidth={0.2} strokeOpacity={0.55} strokeLinejoin="round">
+        <rect x={0} y={0} width={CW} height={CD} strokeOpacity={0.3} />
+        <rect x={CW / 2 - 8} y={sy(19)} width={16} height={19} />
+        <path d={`M ${CW / 2 - 6} ${sy(19)} A 6 6 0 0 1 ${CW / 2 + 6} ${sy(19)}`} />
+        <path d={ARC_D} />
+        <line x1={CORNER_X} y1={CD} x2={CORNER_X} y2={sy(CORNER_MEET)} />
+        <line x1={CW - CORNER_X} y1={CD} x2={CW - CORNER_X} y2={sy(CORNER_MEET)} />
+        <path d={`M ${CW / 2 - RA_R} ${sy(HOOP_Y)} A ${RA_R} ${RA_R} 0 0 1 ${CW / 2 + RA_R} ${sy(HOOP_Y)}`} strokeOpacity={0.35} />
+      </g>
+      <line x1={CW / 2 - 3} y1={sy(4)} x2={CW / 2 + 3} y2={sy(4)} stroke={COURT.text} strokeWidth={0.4} strokeOpacity={0.7} />
+      <circle cx={CW / 2} cy={sy(HOOP_Y)} r={0.7} fill="none" stroke={COURT.accent} strokeWidth={0.38} />
+
+      {children}
+    </>
+  );
+}
+
+// frac (a [makes, attempts] pair) is the per-game alternative to value/delta —
+// a single game is too small a sample for a percentage, so it renders as a
+// straight fraction and never shows a vs-league delta line.
+function ZoneLabel({ x, y, name, value, delta, mode, frac }) {
+  if (value == null && !frac) return null;
   const dc = delta == null ? COURT.mute : delta > 0 ? COURT.good : COURT.bad;
   return (
     <g transform={`translate(${x} ${y})`}>
@@ -2511,7 +2552,7 @@ function ZoneLabel({ x, y, name, value, delta, mode }) {
       </text>
       <text textAnchor="middle" y={2.55} {...HALO}
         style={{ fontFamily: DISPLAY, fontSize: 2.5, fontWeight: 700, letterSpacing: 0.06, fill: COURT.text }}>
-        {value.toFixed(1)}%
+        {frac ? `${frac[0]}/${frac[1]}` : `${value.toFixed(1)}%`}
       </text>
       {mode === "eff" && delta != null && (
         <text textAnchor="middle" y={4.5} {...HALO}
@@ -2520,6 +2561,45 @@ function ZoneLabel({ x, y, name, value, delta, mode }) {
         </text>
       )}
     </g>
+  );
+}
+
+// Compact per-game shot chart (PlayerQuickView) — makes/attempts by zone for
+// one game only. No freq/eff toggle, no vs-league delta: SHOTS.P's own 60-FGA
+// floor exists precisely because a handful of shots can't support a
+// percentage, and one game is a fraction of that. Absent entirely (not zeroed)
+// when this player-game hasn't reconciled yet or predates the pipeline.
+function GameFingerprint({ p, gameId }) {
+  const pg = SHOTS.PG && (SHOTS.PG[String(p.id)] || SHOTS.PG[p.id]);
+  const row = pg && pg[gameId];
+  if (!row) return (
+    <div style={{ fontSize: 10.5, color: C.mute, textAlign: "center", padding: "14px 4px", lineHeight: 1.5 }}>
+      Shot chart not available for this game.
+    </div>
+  );
+  const za = [row[1], row[3], row[5], row[7], row[9]];
+  const zm = [row[2], row[4], row[6], row[8], row[10]];
+  const maxF = Math.max(...za, 1);
+  const tone = (i) => ({ c: COURT.accent, o: za[i] === 0 ? 0.06 : 0.10 + (za[i] / maxF) * 0.55 });
+  const frac = (i) => (za[i] > 0 ? [zm[i], za[i]] : null);
+  return (
+    <svg viewBox={`-0.5 -0.5 ${CW + 1} ${CD + 1}`} role="img"
+         aria-label={`Shot zone map for ${p.name}, this game`}
+         style={{ width: "100%", display: "block", background: COURT.visual, border: `1px solid ${COURT.border}` }}>
+      <CourtShape tone={tone}>
+        <ZoneLabel x={CW / 2} y={sy(3.3)} name="RIM" frac={frac(0)} />
+        <ZoneLabel x={CW / 2} y={sy(15.4)} name="PAINT" frac={frac(1)} />
+        <ZoneLabel x={CW / 2} y={sy(24.2)} name="MID-RANGE" frac={frac(2)} />
+        <ZoneLabel x={CW / 2} y={sy(32.4)} name="ABOVE THE BREAK" frac={frac(4)} />
+        {za[3] > 0 && (
+          <text x={CORNER_X / 2} y={sy(4.0)} textAnchor="middle"
+                transform={`rotate(-90 ${CORNER_X / 2} ${sy(4.0)})`} {...HALO}
+                style={{ fontFamily: DISPLAY, fontSize: 2.4, fontWeight: 700, letterSpacing: 0.06, fill: COURT.text }}>
+            {zm[3]}/{za[3]}
+          </text>
+        )}
+      </CourtShape>
+    </svg>
   );
 }
 
@@ -2553,52 +2633,32 @@ function ShotFingerprint({ p }) {
       <svg viewBox={`-0.5 -0.5 ${CW + 1} ${CD + 1}`} role="img"
            aria-label={`Shot zone map for ${p.name}`}
            style={{ width: "100%", display: "block", background: COURT.visual, border: `1px solid ${COURT.border}` }}>
-        {/* fills painted back to front — overlap does the clipping */}
-        <rect x={0} y={0} width={CW} height={CD} fill={tone(4).c} fillOpacity={tone(4).o} />
-        <rect x={0} y={sy(CORNER_MEET)} width={CORNER_X} height={CORNER_MEET} fill={tone(3).c} fillOpacity={tone(3).o} />
-        <rect x={CW - CORNER_X} y={sy(CORNER_MEET)} width={CORNER_X} height={CORNER_MEET} fill={tone(3).c} fillOpacity={tone(3).o} />
-        <path d={`${ARC_D} L ${CW - CORNER_X} ${CD} L ${CORNER_X} ${CD} Z`} fill={tone(2).c} fillOpacity={tone(2).o} />
-        <rect x={CW / 2 - 8} y={sy(19)} width={16} height={19} fill={tone(1).c} fillOpacity={tone(1).o} />
-        <path d={`M ${CW / 2 - RA_R} ${CD} L ${CW / 2 - RA_R} ${sy(HOOP_Y)} A ${RA_R} ${RA_R} 0 0 1 ${CW / 2 + RA_R} ${sy(HOOP_Y)} L ${CW / 2 + RA_R} ${CD} Z`}
-              fill={tone(0).c} fillOpacity={tone(0).o} />
-
-        {/* court markings */}
-        <g fill="none" stroke={COURT.text} strokeWidth={0.2} strokeOpacity={0.55} strokeLinejoin="round">
-          <rect x={0} y={0} width={CW} height={CD} strokeOpacity={0.3} />
-          <rect x={CW / 2 - 8} y={sy(19)} width={16} height={19} />
-          <path d={`M ${CW / 2 - 6} ${sy(19)} A 6 6 0 0 1 ${CW / 2 + 6} ${sy(19)}`} />
-          <path d={ARC_D} />
-          <line x1={CORNER_X} y1={CD} x2={CORNER_X} y2={sy(CORNER_MEET)} />
-          <line x1={CW - CORNER_X} y1={CD} x2={CW - CORNER_X} y2={sy(CORNER_MEET)} />
-          <path d={`M ${CW / 2 - RA_R} ${sy(HOOP_Y)} A ${RA_R} ${RA_R} 0 0 1 ${CW / 2 + RA_R} ${sy(HOOP_Y)}`} strokeOpacity={0.35} />
-        </g>
-        <line x1={CW / 2 - 3} y1={sy(4)} x2={CW / 2 + 3} y2={sy(4)} stroke={COURT.text} strokeWidth={0.4} strokeOpacity={0.7} />
-        <circle cx={CW / 2} cy={sy(HOOP_Y)} r={0.7} fill="none" stroke={COURT.accent} strokeWidth={0.38} />
-
-        {/* labels — positions checked against each zone's real free space */}
-        <ZoneLabel x={CW / 2} y={sy(3.3)} name="RIM"       value={val(0)} delta={dlt(0)} mode="freq" />
-        <ZoneLabel x={CW / 2} y={sy(15.4)} name="PAINT"     value={val(1)} delta={dlt(1)} mode={mode} />
-        <ZoneLabel x={CW / 2} y={sy(24.2)} name="MID-RANGE" value={val(2)} delta={dlt(2)} mode={mode} />
-        <ZoneLabel x={CW / 2} y={sy(32.4)} name="ABOVE THE BREAK" value={val(4)} delta={dlt(4)} mode={mode} />
-        {/* Corner: ONE label, single rotated line. Both corners are one combined
-            zone, so a second figure would only invite the reader to think they
-            differ. Two stacked lines can't work rotated — they'd spread across
-            the corner's 3ft width instead of down its 7.8ft height, which is
-            what pushed the right-hand label off the canvas. */}
-        {val(3) != null && (
-          <text x={CORNER_X / 2} y={sy(4.0)} textAnchor="middle"
-                transform={`rotate(-90 ${CORNER_X / 2} ${sy(4.0)})`} {...HALO}
-                style={{ fontFamily: DISPLAY, fontSize: 2.4, fontWeight: 700, letterSpacing: 0.06, fill: COURT.text }}>
-            {val(3).toFixed(1)}%
-          </text>
-        )}
-        {/* rim delta sits beside the arc rather than under it — no room below */}
-        {mode === "eff" && dlt(0) != null && (
-          <text x={CW / 2} y={sy(10.6)} textAnchor="middle" {...HALO}
-                style={{ fontSize: 1.5, fontWeight: 700, letterSpacing: 0.06, fill: dlt(0) > 0 ? COURT.good : COURT.bad }}>
-            {dlt(0) > 0 ? "+" : ""}{dlt(0).toFixed(1)} vs lg
-          </text>
-        )}
+        <CourtShape tone={tone}>
+          {/* labels — positions checked against each zone's real free space */}
+          <ZoneLabel x={CW / 2} y={sy(3.3)} name="RIM"       value={val(0)} delta={dlt(0)} mode="freq" />
+          <ZoneLabel x={CW / 2} y={sy(15.4)} name="PAINT"     value={val(1)} delta={dlt(1)} mode={mode} />
+          <ZoneLabel x={CW / 2} y={sy(24.2)} name="MID-RANGE" value={val(2)} delta={dlt(2)} mode={mode} />
+          <ZoneLabel x={CW / 2} y={sy(32.4)} name="ABOVE THE BREAK" value={val(4)} delta={dlt(4)} mode={mode} />
+          {/* Corner: ONE label, single rotated line. Both corners are one combined
+              zone, so a second figure would only invite the reader to think they
+              differ. Two stacked lines can't work rotated — they'd spread across
+              the corner's 3ft width instead of down its 7.8ft height, which is
+              what pushed the right-hand label off the canvas. */}
+          {val(3) != null && (
+            <text x={CORNER_X / 2} y={sy(4.0)} textAnchor="middle"
+                  transform={`rotate(-90 ${CORNER_X / 2} ${sy(4.0)})`} {...HALO}
+                  style={{ fontFamily: DISPLAY, fontSize: 2.4, fontWeight: 700, letterSpacing: 0.06, fill: COURT.text }}>
+              {val(3).toFixed(1)}%
+            </text>
+          )}
+          {/* rim delta sits beside the arc rather than under it — no room below */}
+          {mode === "eff" && dlt(0) != null && (
+            <text x={CW / 2} y={sy(10.6)} textAnchor="middle" {...HALO}
+                  style={{ fontSize: 1.5, fontWeight: 700, letterSpacing: 0.06, fill: dlt(0) > 0 ? COURT.good : COURT.bad }}>
+              {dlt(0) > 0 ? "+" : ""}{dlt(0).toFixed(1)} vs lg
+            </text>
+          )}
+        </CourtShape>
       </svg>
 
       <div style={{ display: "flex", justifyContent: "space-between", gap: 10, fontSize: 9, color: C.mute, padding: "7px 0 0", lineHeight: 1.5 }}>

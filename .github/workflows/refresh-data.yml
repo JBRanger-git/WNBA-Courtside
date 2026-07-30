@@ -66,6 +66,17 @@ jobs:
       - name: Fetch fresh data (R → CSV)
         run: Rscript scripts/fetch_wnba.R
 
+      - name: Fetch shot chart data (R → CSV)
+        # Adds fact_pbp.csv (shot zones, now with game_id) and refreshes
+        # fact_player_box.csv (FGA + points) for the season AND per-game shot
+        # fingerprints. Moved here from the old weekly refresh-shots.yml now
+        # that build_data.py reconciles per (athlete, game) instead of
+        # season-wide — a straggler game no longer blocks everything else, so
+        # there's no reason to hold this back to once a week. Defensive and
+        # non-fatal: on a miss, build_data.py preserves the prior season AND
+        # per-game fingerprints rather than blanking them.
+        run: Rscript scripts/fetch_shots.R || echo "shot chart fetch step failed — continuing with preserved shot data"
+
       - name: Fetch WNBA news (R → CSV)
         # Adds dim_news.csv (headlines + real story URLs) for the app's Wire.
         # Fully defensive and never fatal: on any failure build_data.py preserves

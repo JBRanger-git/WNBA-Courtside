@@ -20,6 +20,12 @@ const checks = [
   ['shot fingerprints present', Object.keys(D.SHOTS.P).length > 100],
   ['zone freqs sum to ~100 per player', Object.values(D.SHOTS.P).every(p => Math.abs(p.f.reduce((a,b)=>a+b,0)-100) < 0.6)],
   ['league corner3 FG% > above-break FG%', D.SHOTS.LG.fg[3] > D.SHOTS.LG.fg[4]],
+  // PG (per-game shot data) doesn't exist in every snapshot yet — it's new and
+  // only populated once the daily refresh runs fetch_shots.R again. Passes
+  // trivially until then; once present, actually checks its shape.
+  ['per-game shots well-formed (if present)', !D.SHOTS.PG || Object.values(D.SHOTS.PG).every(games =>
+    Object.values(games).every(row => row.length === 11 && row.every(x => Number.isFinite(x) && x >= 0)
+      && [0,1,2,3,4].every(i => row[2+i*2] <= row[1+i*2])))],
   ['team bio has Toronto multi-venue', D.TEAM_BIO['131935'].alt.length === 3],
   ['bundle embeds the data', js.includes("A'ja Wilson")],
   // Tripwire for a raw-pbp leak (~54 MB), not a tight budget; checks the largest

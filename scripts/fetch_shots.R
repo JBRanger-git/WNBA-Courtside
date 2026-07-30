@@ -1,8 +1,22 @@
 # =============================================================================
-# Courtside — weekly shot-chart fetch. Play-by-play -> the two CSVs the shot
+# Courtside — daily shot-chart fetch. Play-by-play -> the two CSVs the shot
 # fingerprint needs:
-#     fact_pbp.csv        (shooting_play, shot_zone, athlete_id_1, shot_result, type_text)
-#     fact_player_box.csv (field_goals_attempted — build_data's reconciliation gate)
+#     fact_pbp.csv        (shooting_play, shot_zone, athlete_id_1, shot_result,
+#                           type_text, game_id)
+#     fact_player_box.csv (game_id, field_goals_attempted, points — build_data's
+#                           per-game reconciliation gate and the source for
+#                           SHOTS.PG's per-game "pts" figure)
+#
+# game_id is threaded through so build_data.py can validate and store shot
+# data PER GAME, not just per season — that's what lets it reconcile a single
+# unsynced game without blocking every other game's data, and what powers the
+# per-game shot chart in the player quick-view popup (GameFingerprint). Runs
+# daily now (folded into refresh-data.yml) rather than weekly: it was weekly
+# because a full-season pbp pull is the heaviest fetch in the pipeline and used
+# to gate the ENTIRE shot dataset on one all-or-nothing check, which made
+# running it often risky. Now that reconciliation is per-game, a bad or
+# not-yet-synced game just gets skipped rather than blocking everything else,
+# so there's no reason to hold it back to once a week any more.
 #
 # The 5 shot zones are NOT in the raw feed; the original pipeline derived them
 # from coordinates. We reconstruct that here, but the coordinate system wehoop
@@ -45,6 +59,7 @@ pbp$.x         <- num(if ("coordinate_x" %in% names(pbp)) pbp$coordinate_x else 
 pbp$.y         <- num(if ("coordinate_y" %in% names(pbp)) pbp$coordinate_y else NA)
 pbp$.made      <- if ("scoring_play" %in% names(pbp)) as.logical(pbp$scoring_play) else grepl("makes", pbp$.text, ignore.case = TRUE)
 pbp$.shooter   <- chr(if ("athlete_id_1" %in% names(pbp)) pbp$athlete_id_1 else NA)
+pbp$.game      <- chr(if ("game_id" %in% names(pbp)) pbp$game_id else NA)
 
 sh <- pbp |> filter(shooting_play == TRUE)
 message("shooting plays: ", nrow(sh))
@@ -100,7 +115,8 @@ fact_pbp <- tibble(
   shot_zone     = zone,
   athlete_id_1  = fga$.shooter,
   shot_result   = ifelse(fga$.made, "Made", "Missed"),
-  type_text     = fga$.type
+  type_text     = fga$.type,
+  game_id       = fga$.game
 )
 write_csv(fact_pbp, file.path(OUT, "fact_pbp.csv"), na = "")
 message("  fact_pbp.csv       ", nrow(fact_pbp), " FG attempts")
@@ -116,17 +132,23 @@ for (z in ZONES) {
                   if (nrow(r)) r$fg else "-"))
 }
 
-# --- fact_player_box.csv: FGA totals for build_data's reconciliation gate --
+# --- fact_player_box.csv: per-(athlete,game) FGA + points. FGA is
+# build_data's reconciliation gate (now per-game, not just season-wide);
+# points is the only extra figure the per-game shot chart needs beyond what's
+# derivable from the zone breakdown itself (free throws aren't in the shot
+# data, so points can't be reconstructed from makes alone).
 player_box <- load_wnba_player_box(seasons = SEASON)
 pbx <- regular(player_box)
 fact_player_box <- tibble(
   athlete_id             = chr(pbx$athlete_id),
   game_id                = chr(pbx$game_id),
-  field_goals_attempted  = num(pbx$field_goals_attempted)
+  field_goals_attempted  = num(pbx$field_goals_attempted),
+  points                 = num(pbx$points)
 )
 write_csv(fact_player_box, file.path(OUT, "fact_player_box.csv"), na = "")
 message("  fact_player_box.csv  ", nrow(fact_player_box), " rows  (box FGA=",
         sum(fact_player_box$field_goals_attempted, na.rm = TRUE), ")")
 
-message("\nDone. build_data.py rebuilds the shot fingerprint from fact_pbp.csv ",
-        "and reconciles the count against box-score FGA.")
+message("\nDone. build_data.py rebuilds the season and per-game shot fingerprints ",
+        "from fact_pbp.csv, reconciling each (athlete, game) pair against box-score ",
+        "FGA individually.")
