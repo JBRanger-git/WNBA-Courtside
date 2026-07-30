@@ -2677,8 +2677,8 @@ function GameFingerprint({ p, gameId }) {
         </CourtShape>
       </svg>
       {fta > 0 && (
-        <div style={{ fontSize: 9.5, color: C.mute, padding: "6px 0 0", lineHeight: 1.5 }}>
-          <b style={{ color: C.text, ...agate }}>{ftm}-{fta} FT</b> ({(100 * ftm / fta).toFixed(1)}%) — not on the chart above, free throws have no court location.
+        <div style={{ fontSize: 9.5, color: C.mute, padding: "6px 0 0", lineHeight: 1.5, ...agate }}>
+          <b style={{ color: C.text }}>{ftm}</b> FT Made / <b style={{ color: C.text }}>{fta}</b> FT Attempted
         </div>
       )}
     </>
