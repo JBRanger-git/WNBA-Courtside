@@ -2429,13 +2429,13 @@ function ZoneLabel({ x, y, name, value, delta, mode }) {
         style={{ fontSize: 1.45, fontWeight: 700, letterSpacing: 0.12, fill: COURT.sec }}>
         {name}
       </text>
-      <text textAnchor="middle" y={2.9} {...HALO}
-        style={{ fontFamily: DISPLAY, fontSize: 2.9, fontWeight: 700, fill: COURT.text }}>
+      <text textAnchor="middle" y={2.55} {...HALO}
+        style={{ fontFamily: DISPLAY, fontSize: 2.5, fontWeight: 700, fill: COURT.text }}>
         {value.toFixed(1)}%
       </text>
       {mode === "eff" && delta != null && (
-        <text textAnchor="middle" y={5} {...HALO}
-          style={{ fontSize: 1.5, fontWeight: 700, fill: dc }}>
+        <text textAnchor="middle" y={4.5} {...HALO}
+          style={{ fontSize: 1.3, fontWeight: 700, fill: dc }}>
           {delta > 0 ? "+" : ""}{delta.toFixed(1)} vs lg
         </text>
       )}
