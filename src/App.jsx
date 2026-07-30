@@ -397,12 +397,19 @@ export default function CourtsideApp() {
         @keyframes cs-swipe-r { from { opacity:.35; transform:translateX(-30px) } to { opacity:1; transform:none } }
         .cs-swipe-l { animation: cs-swipe-l .22s cubic-bezier(.22,.61,.36,1) both }
         .cs-swipe-r { animation: cs-swipe-r .22s cubic-bezier(.22,.61,.36,1) both }
+        /* Popup modals (PlayerQuickView): scrim fades, card fades + settles in
+           from a slight scale/lift — same easing family as the rest of the
+           app's motion, just shaped for "arriving on top" rather than a push. */
+        @keyframes cs-scrim { from { opacity:0 } to { opacity:1 } }
+        @keyframes cs-pop { from { opacity:0; transform:scale(.96) translateY(6px) } to { opacity:1; transform:none } }
+        .cs-scrim { animation: cs-scrim .15s ease-out both }
+        .cs-pop   { animation: cs-pop .18s cubic-bezier(.22,.61,.36,1) both }
         /* Touch feedback: buttons dim, tappable rows tint, on press. */
         button, .tap { -webkit-tap-highlight-color: transparent; }
         button:active, .tap:active { opacity:.55; transition: opacity .05s }
         @media (prefers-reduced-motion: reduce){
           *{transition:none!important}
-          .cs-push,.cs-fade,.cs-sheet,.cs-swipe-l,.cs-swipe-r{animation:none!important}
+          .cs-push,.cs-fade,.cs-sheet,.cs-swipe-l,.cs-swipe-r,.cs-scrim,.cs-pop{animation:none!important}
         }
       `}</style>
 
@@ -506,10 +513,10 @@ function ExitConfirm({ onCancel, onExit }) {
 function PlayerQuickView({ player, line, onClose, onFullProfile }) {
   return (
     <div role="dialog" aria-modal="true" aria-label={`${player.name} quick view`}
-      onClick={onClose}
+      onClick={onClose} className="cs-scrim"
       style={{ position: "absolute", inset: 0, zIndex: 50, background: "rgba(21,21,28,.55)",
         display: "flex", alignItems: "center", justifyContent: "center", padding: 28 }}>
-      <div onClick={e => e.stopPropagation()} style={{
+      <div onClick={e => e.stopPropagation()} className="cs-pop" style={{
         width: "100%", maxWidth: 320, background: C.card, border: `1px solid ${C.border}`,
         borderRadius: 6, overflow: "hidden", boxShadow: "0 14px 44px rgba(0,0,0,.34)" }}>
         <div style={{ height: 4, background: safeTeamColor(player.team.color) }} />
