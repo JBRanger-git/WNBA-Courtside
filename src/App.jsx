@@ -1499,6 +1499,7 @@ function Bar({ label, v, max, color }) {
 
 function PlayerDetail({ player: p, onBack, openTeam, onCompare }) {
   const [sub, setSub] = useState("Profile");
+  const [fpView, setFpView] = useState("season");   // Fingerprint tab: "season" or a game id
   const tabs = ["Profile", "Percentiles", "Fingerprint", ...(p.hist?.length ? ["Career"] : [])];
   const swipe = useSwipeTabs(tabs, sub, setSub);
   const pcts = [
@@ -1571,7 +1572,15 @@ function PlayerDetail({ player: p, onBack, openTeam, onCompare }) {
             Percentile vs. same-position players with 8+ games. Centre rule marks the positional median. Turnovers inverted — lower is better.
           </div>
         </>}
-        {sub === "Fingerprint" && <ShotFingerprint p={p} />}
+        {sub === "Fingerprint" && <>
+          <FingerprintPicker p={p} view={fpView} setView={setFpView} />
+          {fpView === "season"
+            ? <ShotFingerprint p={p} />
+            : <>
+                <FingerprintGameContext p={p} gameId={fpView} />
+                <GameFingerprint p={p} gameId={fpView} />
+              </>}
+        </>}
         {sub === "Career" && <CareerArc p={p} />}
       </div>
     </>
@@ -2564,11 +2573,76 @@ function ZoneLabel({ x, y, name, value, delta, mode, frac }) {
   );
 }
 
-// Compact per-game shot chart (PlayerQuickView) — makes/attempts by zone for
-// one game only. No freq/eff toggle, no vs-league delta: SHOTS.P's own 60-FGA
-// floor exists precisely because a handful of shots can't support a
-// percentage, and one game is a fraction of that. Absent entirely (not zeroed)
-// when this player-game hasn't reconciled yet or predates the pipeline.
+// Season/game picker for PlayerDetail's Fingerprint tab — a horizontally
+// scrollable chip strip, "SEASON" first (default) then every game this player
+// has per-game shot data for, reverse-chronological. Same visual language
+// as the Home screen's date strip (ScoreRail): small colour dot for the
+// result, agate for anything numeric.
+function FingerprintPicker({ p, view, setView }) {
+  const games = useMemo(() => {
+    const pg = SHOTS.PG && (SHOTS.PG[String(p.id)] || SHOTS.PG[p.id]);
+    if (!pg) return [];
+    return Object.keys(pg).map(gid => GAME[gid]).filter(Boolean)
+      .sort((a, b) => gameLocalDate(b) - gameLocalDate(a));
+  }, [p.id]);
+  const chip = (id, label, dotColor, active) => (
+    <button key={id} onClick={() => setView(id)} style={{
+      flexShrink: 0, fontFamily: DISPLAY, fontSize: 10.5, fontWeight: 700, letterSpacing: .3,
+      padding: "7px 12px", borderRadius: 20, border: `1px solid ${active ? C.rule : C.border}`,
+      background: active ? C.rule : C.visual, color: active ? C.onRule : C.sec,
+      display: "flex", alignItems: "center", gap: 6, whiteSpace: "nowrap", cursor: "pointer",
+    }}>
+      {dotColor && <span style={{ width: 6, height: 6, borderRadius: 99, background: dotColor, flexShrink: 0 }} />}
+      {label}
+    </button>
+  );
+  if (!games.length) return null;
+  return (
+    <div className="noscroll" style={{ display: "flex", gap: 6, overflowX: "auto", padding: "2px 0 8px" }}>
+      {chip("season", "SEASON", null, view === "season")}
+      {games.map(g => {
+        const home = p.teamId === g.homeId;
+        const opp = home ? g.away : g.home;
+        const win = home ? g.hs > g.as : g.as > g.hs;
+        const label = gameLocalDate(g).toLocaleDateString("en-US", { month: "short", day: "numeric" }).toUpperCase()
+          + (home ? " vs " : " @ ") + opp.abbr;
+        return chip(g.id, label, g.done ? (win ? C.good : C.bad) : null, view === g.id);
+      })}
+    </div>
+  );
+}
+
+// Context line above the per-game chart: date, opponent, result, points, and
+// an aggregate FG line (well-sampled at ~10-20 shots, unlike a per-zone split
+// — that's exactly why this is a total, not broken out by zone like GameFingerprint).
+function FingerprintGameContext({ p, gameId }) {
+  const g = GAME[gameId];
+  const pg = SHOTS.PG && (SHOTS.PG[String(p.id)] || SHOTS.PG[p.id]);
+  const row = pg && pg[gameId];
+  if (!g || !row) return null;
+  const home = p.teamId === g.homeId;
+  const opp = home ? g.away : g.home;
+  const win = home ? g.hs > g.as : g.as > g.hs;
+  const pts = row[0];
+  const fga = [row[1], row[3], row[5], row[7], row[9]].reduce((a, b) => a + b, 0);
+  const fgm = [row[2], row[4], row[6], row[8], row[10]].reduce((a, b) => a + b, 0);
+  return (
+    <div style={{ fontSize: 10.5, color: C.sec, padding: "0 0 8px", lineHeight: 1.6, ...agate }}>
+      {gameLocalDate(g).toLocaleDateString("en-US", { month: "short", day: "numeric" }).toUpperCase()}
+      {" · "}{home ? "vs" : "@"} {opp.name}
+      {g.done && <>{" · "}<span style={{ color: win ? C.good : C.bad, fontWeight: 700 }}>{win ? "W" : "L"} {g.hs}-{g.as}</span></>}
+      {" · "}<b style={{ color: C.text }}>{pts} PTS</b>
+      {fga > 0 && <>{" · "}{fgm}-{fga} FG ({(100 * fgm / fga).toFixed(1)}%)</>}
+    </div>
+  );
+}
+
+// Compact per-game shot chart (PlayerQuickView, PlayerDetail's Fingerprint tab)
+// — makes/attempts by zone for one game only. No freq/eff toggle, no vs-league
+// delta: SHOTS.P's own 60-FGA floor exists precisely because a handful of
+// shots can't support a percentage, and one game is a fraction of that.
+// Absent entirely (not zeroed) when this player-game hasn't reconciled yet or
+// predates the pipeline.
 function GameFingerprint({ p, gameId }) {
   const pg = SHOTS.PG && (SHOTS.PG[String(p.id)] || SHOTS.PG[p.id]);
   const row = pg && pg[gameId];
