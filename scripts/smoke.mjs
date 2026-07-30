@@ -29,8 +29,13 @@ const checks = [
   ['team bio has Toronto multi-venue', D.TEAM_BIO['131935'].alt.length === 3],
   ['bundle embeds the data', js.includes("A'ja Wilson")],
   // Tripwire for a raw-pbp leak (~54 MB), not a tight budget; checks the largest
-  // chunk, with headroom for the head-to-head game log (GHIST).
-  ['bundle has no raw pbp leak', maxJs < 480000],
+  // chunk, with headroom for the head-to-head game log (GHIST) and per-game shot
+  // data (SHOTS.PG, added ~134KB with 210/332 games completed — real number from
+  // the 2026-07-30 catch-up refresh, run 30537074823, which is what caught the
+  // old 480000 ceiling being too tight the moment PG had real data behind it).
+  // 900000 leaves headroom for PG to grow through the rest of the season while
+  // staying two orders of magnitude below an actual leak.
+  ['bundle has no raw pbp leak', maxJs < 900000],
 ];
 let bad = 0;
 for (const [n, ok] of checks) { console.log(`  ${ok?'PASS':'FAIL'}  ${n}`); if(!ok) bad++; }
