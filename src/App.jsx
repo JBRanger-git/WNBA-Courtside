@@ -2653,27 +2653,35 @@ function GameFingerprint({ p, gameId }) {
   );
   const za = [row[1], row[3], row[5], row[7], row[9]];
   const zm = [row[2], row[4], row[6], row[8], row[10]];
+  const ftm = row[11], fta = row[12];
   const maxF = Math.max(...za, 1);
   const tone = (i) => ({ c: COURT.accent, o: za[i] === 0 ? 0.06 : 0.10 + (za[i] / maxF) * 0.55 });
   const frac = (i) => (za[i] > 0 ? [zm[i], za[i]] : null);
   return (
-    <svg viewBox={`-0.5 -0.5 ${CW + 1} ${CD + 1}`} role="img"
-         aria-label={`Shot zone map for ${p.name}, this game`}
-         style={{ width: "100%", display: "block", background: COURT.visual, border: `1px solid ${COURT.border}` }}>
-      <CourtShape tone={tone}>
-        <ZoneLabel x={CW / 2} y={sy(3.3)} name="RIM" frac={frac(0)} />
-        <ZoneLabel x={CW / 2} y={sy(15.4)} name="PAINT" frac={frac(1)} />
-        <ZoneLabel x={CW / 2} y={sy(24.2)} name="MID-RANGE" frac={frac(2)} />
-        <ZoneLabel x={CW / 2} y={sy(32.4)} name="ABOVE THE BREAK" frac={frac(4)} />
-        {za[3] > 0 && (
-          <text x={CORNER_X / 2} y={sy(4.0)} textAnchor="middle"
-                transform={`rotate(-90 ${CORNER_X / 2} ${sy(4.0)})`} {...HALO}
-                style={{ fontFamily: DISPLAY, fontSize: 2.4, fontWeight: 700, letterSpacing: 0.06, fill: COURT.text }}>
-            {zm[3]}/{za[3]}
-          </text>
-        )}
-      </CourtShape>
-    </svg>
+    <>
+      <svg viewBox={`-0.5 -0.5 ${CW + 1} ${CD + 1}`} role="img"
+           aria-label={`Shot zone map for ${p.name}, this game`}
+           style={{ width: "100%", display: "block", background: COURT.visual, border: `1px solid ${COURT.border}` }}>
+        <CourtShape tone={tone}>
+          <ZoneLabel x={CW / 2} y={sy(3.3)} name="RIM" frac={frac(0)} />
+          <ZoneLabel x={CW / 2} y={sy(15.4)} name="PAINT" frac={frac(1)} />
+          <ZoneLabel x={CW / 2} y={sy(24.2)} name="MID-RANGE" frac={frac(2)} />
+          <ZoneLabel x={CW / 2} y={sy(32.4)} name="ABOVE THE BREAK" frac={frac(4)} />
+          {za[3] > 0 && (
+            <text x={CORNER_X / 2} y={sy(4.0)} textAnchor="middle"
+                  transform={`rotate(-90 ${CORNER_X / 2} ${sy(4.0)})`} {...HALO}
+                  style={{ fontFamily: DISPLAY, fontSize: 2.4, fontWeight: 700, letterSpacing: 0.06, fill: COURT.text }}>
+              {zm[3]}/{za[3]}
+            </text>
+          )}
+        </CourtShape>
+      </svg>
+      {fta > 0 && (
+        <div style={{ fontSize: 9.5, color: C.mute, padding: "6px 0 0", lineHeight: 1.5 }}>
+          <b style={{ color: C.text, ...agate }}>{ftm}-{fta} FT</b> ({(100 * ftm / fta).toFixed(1)}%) — not on the chart above, free throws have no court location.
+        </div>
+      )}
+    </>
   );
 }
 
