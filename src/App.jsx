@@ -500,6 +500,55 @@ function ExitConfirm({ onCancel, onExit }) {
   );
 }
 
+// Player quick view, opened from a box-score row (GameDetail's Top performers)
+// without leaving the game — same scrim+card pattern as ExitConfirm, tap the
+// scrim or Close to dismiss. "Full profile" hands off to the real navigation.
+function PlayerQuickView({ player, line, onClose, onFullProfile }) {
+  return (
+    <div role="dialog" aria-modal="true" aria-label={`${player.name} quick view`}
+      onClick={onClose}
+      style={{ position: "absolute", inset: 0, zIndex: 50, background: "rgba(21,21,28,.55)",
+        display: "flex", alignItems: "center", justifyContent: "center", padding: 28 }}>
+      <div onClick={e => e.stopPropagation()} style={{
+        width: "100%", maxWidth: 320, background: C.card, border: `1px solid ${C.border}`,
+        borderRadius: 6, overflow: "hidden", boxShadow: "0 14px 44px rgba(0,0,0,.34)" }}>
+        <div style={{ height: 4, background: safeTeamColor(player.team.color) }} />
+        <div style={{ padding: "16px 18px 18px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 11, marginBottom: 14 }}>
+            <Face player={player} size={42} />
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontFamily: DISPLAY, fontWeight: 600, fontSize: 16, letterSpacing: .3, textTransform: "uppercase", color: C.text, lineHeight: 1.15 }}>{player.name}</div>
+              <div style={{ fontSize: 10, color: C.sec, marginTop: 2 }}>{player.team.name} &middot; {player.pos}</div>
+            </div>
+          </div>
+
+          <div style={{ fontSize: 9, letterSpacing: .8, textTransform: "uppercase", color: C.mute, marginBottom: 6 }}>This game</div>
+          <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
+            {[["PTS", line.pts], ["REB", line.reb], ["AST", line.ast]].map(([k, v]) => (
+              <div key={k} style={{ flex: 1, textAlign: "center", background: C.stripe, borderRadius: 4, padding: "8px 0" }}>
+                <div style={{ fontFamily: DISPLAY, fontSize: 18, fontWeight: 700, ...agate, color: C.text }}>{v}</div>
+                <div style={{ fontSize: 8.5, letterSpacing: .6, color: C.mute, marginTop: 1 }}>{k}</div>
+              </div>
+            ))}
+          </div>
+
+          <div style={{ fontSize: 9, letterSpacing: .8, textTransform: "uppercase", color: C.mute, marginBottom: 6 }}>Season average &middot; {player.gp} GP</div>
+          <div style={{ display: "flex", gap: 16, fontSize: 12.5, color: C.sec, marginBottom: 18, ...agate }}>
+            <span><b style={{ color: C.text }}>{player.ppg}</b> ppg</span>
+            <span><b style={{ color: C.text }}>{player.rpg}</b> rpg</span>
+            <span><b style={{ color: C.text }}>{player.apg}</b> apg</span>
+          </div>
+
+          <div style={{ display: "flex", gap: 10 }}>
+            <button onClick={onClose} style={{ flex: 1, padding: "10px 0", border: `1px solid ${C.border}`, background: C.visual, color: C.text, borderRadius: 4, fontSize: 12, fontWeight: 700, letterSpacing: .6, textTransform: "uppercase", cursor: "pointer", fontFamily: BODY }}>Close</button>
+            <button onClick={onFullProfile} style={{ flex: 1, padding: "10px 0", border: "none", background: C.rule, color: C.onRule, borderRadius: 4, fontSize: 12, fontWeight: 700, letterSpacing: .6, textTransform: "uppercase", cursor: "pointer", fontFamily: BODY }}>Full profile &rarr;</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ============================================================================
 function Masthead({ title, sub, onSearch, right }) {
   return (
@@ -1159,6 +1208,7 @@ function HeadToHead({ g, openGame }) {
 // side's top performers. Recent live-topped games have no box yet and fall back
 // to the light view. Everything links through to team and player pages.
 function GameDetail({ game: g, onBack, openTeam, openPlayer, openGame }) {
+  const [quickView, setQuickView] = useState(null);   // { player, line } | null — box-score row tap
   if (!g || !g.home || !g.away) return null;
   const awaySt = STANDINGS.find(s => s.id === g.awayId) || {};
   const homeSt = STANDINGS.find(s => s.id === g.homeId) || {};
@@ -1243,7 +1293,7 @@ function GameDetail({ game: g, onBack, openTeam, openPlayer, openGame }) {
                   {(list || []).map(([pid, name, pts, reb, ast]) => {
                     const match = PLAYERS.find(p => String(p.id) === String(pid));
                     return (
-                      <button key={pid} disabled={!match} onClick={() => match && openPlayer(match.id)} style={{ width: "100%", display: "flex", alignItems: "center", gap: 8, padding: "7px 0", border: "none", borderBottom: `1px solid ${C.border}`, background: "none", textAlign: "left", cursor: match ? "pointer" : "default" }}>
+                      <button key={pid} disabled={!match} onClick={() => match && setQuickView({ player: match, line: { pts, reb, ast } })} style={{ width: "100%", display: "flex", alignItems: "center", gap: 8, padding: "7px 0", border: "none", borderBottom: `1px solid ${C.border}`, background: "none", textAlign: "left", cursor: match ? "pointer" : "default" }}>
                         <span style={{ flex: 1, fontSize: 12.5, color: C.text }}>{name}</span>
                         <span style={{ fontFamily: DISPLAY, fontSize: 12.5, ...agate, color: C.sec }}><b style={{ color: C.text }}>{pts}</b> pts · {reb} reb · {ast} ast</span>
                       </button>
@@ -1290,6 +1340,12 @@ function GameDetail({ game: g, onBack, openTeam, openPlayer, openGame }) {
           </div>
         )}
       </div>
+
+      {quickView && (
+        <PlayerQuickView player={quickView.player} line={quickView.line}
+          onClose={() => setQuickView(null)}
+          onFullProfile={() => { const id = quickView.player.id; setQuickView(null); openPlayer(id); }} />
+      )}
     </>
   );
 }
