@@ -29,5 +29,6 @@ export const font = {
   body: "'Roboto', 'Segoe UI', system-ui, sans-serif",
 };
 
-export const fontImportUrl =
-  "https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=Roboto:wght@400;500;700&display=swap";
+// Oswald is bundled locally (src/App.jsx's @font-face, from
+// src/assets/fonts/oswald-var.woff2) — the app has no INTERNET permission, so
+// a live Google Fonts URL here would fail silently on device.
